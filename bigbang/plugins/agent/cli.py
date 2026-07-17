@@ -241,13 +241,17 @@ def _heuristic_plan(task: str) -> Dict[str, Any]:
         "god node": "scout graphify onboard",
         "task compiler": "scout graphify task 'wire Scout to Ava'",
         "herd": "scout --json herd status",
-        "herdr": "scout --json herd herdr",
         "multiplexer": "scout --json herd herdr",
         "blocked": "scout --json herd list --status blocked",
         "dottie": "scout skill teach --target dottie",
         "skill": "scout skill list",
         "teach": "scout skill teach --target dottie",
         "curriculum": "scout skill show scout",
+        "planes": "scout --json planes status",
+        "judgment": "scout --json planes thesis",
+        "herdr": "scout --json planes compare",
+        "flywheel": "scout --json planes loop",
+        "differentiat": "scout --json planes compare",
     }
 
     for k, v in builtin_hints.items():

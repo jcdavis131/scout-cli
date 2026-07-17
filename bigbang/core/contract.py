@@ -57,12 +57,13 @@ def make_plugin_app(
     help_text: str,
     *,
     examples: Optional[Sequence[str]] = None,
+    no_args_is_help: bool = True,
 ) -> typer.Typer:
     """Create a Typer sub-app with foundation defaults (layered help + Examples)."""
     kwargs: Dict[str, Any] = {
         "name": name,
         "help": help_text,
-        "no_args_is_help": True,
+        "no_args_is_help": no_args_is_help,
     }
     if examples:
         kwargs["epilog"] = examples_epilog(examples)

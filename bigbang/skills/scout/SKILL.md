@@ -12,6 +12,22 @@ You are learning **Scout**, the personal control plane. Use it for secrets, tool
 
 Solo personal project, no connection to employer, built with public/free-tier only.
 
+## Positioning (do not confuse with Herdr)
+
+**Thesis:** Most agent managers are multiplexers. **Scout is a judgment plane.**
+
+- **Herdr** = WHERE agents live (PTY panes, SSH attach, TUI)
+- **Scout** = HOW agents decide (trust, tools, judgment, memory, learning)
+
+Never try to turn Scout into a responsive TUI multiplexer. Pair with Herdr for panes.
+
+```bash
+scout --json planes thesis
+scout --json planes compare    # honest matrix vs herdr/tmux/apps
+scout --json planes status     # five planes cockpit
+scout --json planes loop       # act → audit → rft → ava flywheel
+```
+
 ## Hard rules
 
 1. Prefer `scout --json <plugin> <cmd> …` and parse stdout JSON.
@@ -24,17 +40,29 @@ Solo personal project, no connection to employer, built with public/free-tier on
 
 ```bash
 scout --help
+scout planes status
 scout herd --help
 scout tools --help
 scout skill list
 scout skill show scout
 ```
 
+## Five planes (Scout-only)
+
+| Plane | Question | Start here |
+|---|---|---|
+| Trust | May this agent do that? | `system doctor` · `secrets` · `policy` |
+| World | What tools exist? | `tools list` · `mcp serve` |
+| Herd | What’s running/blocked/done? | `herd status` · `herd wait` |
+| Judgment | What next? | `ava route` · `agent run` |
+| Memory | What do we know/learn? | `brain sync` · `graphify` · `rft` |
+
 ## Everyday loops
 
 ### Health
 
 ```bash
+scout --json planes status
 scout --json system doctor
 scout --json herd status
 ```

@@ -36,6 +36,7 @@ def test_mcp_server_initialize_list_and_call():
                 assert "scout_system" in names
                 assert "scout_herd" in names
                 assert "scout_skill" in names
+                assert "scout_planes" in names
                 assert "bb_tools" in names  # compat
                 assert any(n.startswith("scout_") for n in names)
                 # call a trivial tool: tools list

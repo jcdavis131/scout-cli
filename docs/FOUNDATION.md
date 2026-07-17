@@ -1,6 +1,9 @@
 # Scout Foundation Plan
 
-**North star:** Scout is a clean, extensible **orchestration control plane** — not a PTY multiplexer, not a chat UI, not Herdr.
+**North star:** Scout is a clean, extensible **judgment plane** for personal agents — not a PTY multiplexer, not a chat UI, not Herdr.
+
+**Thesis:** Most agent managers are multiplexers. **Scout is a judgment plane.**  
+(Full differentiation vs Herdr screenshots/site: [`docs/DIFFERENTIATION.md`](DIFFERENTIATION.md).)
 
 **Primary student:** Dottie-claw (and any claw/Cursor/Claude agent we teach via skills + MCP).
 
@@ -49,7 +52,7 @@ Dottie-claw / Cursor / Claude
 
 ## 3. Execution waves
 
-### Wave F0 — Foundation contract *(this change)*
+### Wave F0 — Foundation contract *(done)*
 
 - [x] This document (`docs/FOUNDATION.md`)
 - [x] `bigbang/core/contract.py` — `ok`/`err` helpers + `make_plugin_app`
@@ -57,6 +60,11 @@ Dottie-claw / Cursor / Claude
 - [x] Master skill `bigbang/skills/scout/SKILL.md` (Dottie-claw curriculum)
 - [x] MCP tools as `scout_<plugin>` (+ `bb_` compat)
 - [x] Scaffold emits foundation-shaped plugins (Examples + contract emit)
+
+### Wave F0.5 — Differentiation cockpit *(done)*
+
+- [x] `docs/DIFFERENTIATION.md` — refuse the Herdr-trap; five planes thesis
+- [x] `scout planes status|compare|loop|thesis` — agent-readable proof
 
 ### Wave F1 — Core hardening
 

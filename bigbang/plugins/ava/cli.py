@@ -279,6 +279,30 @@ def _heuristic_route(task: str) -> Dict[str, Any]:
     if any(
         k in q
         for k in [
+            "judgment plane",
+            "planes status",
+            "planes compare",
+            "compare herdr",
+            "vs herdr",
+            "differentiat",
+            "flywheel",
+            "five planes",
+        ]
+    ):
+        cmd = "scout --json planes compare" if "compare" in q or "herdr" in q or "vs" in q else (
+            "scout --json planes loop" if "flywheel" in q or "loop" in q else "scout --json planes status"
+        )
+        return {
+            "router": "stub",
+            "picked_tool": "planes",
+            "picked_command": cmd,
+            "confidence": 0.97,
+            "reason": "judgment plane — Scout differentiator vs Herdr multiplexer",
+            "available_tools": list(tools.keys())[:12],
+        }
+    if any(
+        k in q
+        for k in [
             "dottie",
             "dottie-claw",
             "teach scout",

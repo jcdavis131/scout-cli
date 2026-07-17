@@ -6,28 +6,32 @@
 
 Primary command: `scout` (aliases: `bb`, `bigbang`, `dv`, `kitty` for compat) — `scout --help` / `scout --json rtx status`
 
-## What's New in v0.7.0 — Foundation + herd + teach Dottie-claw
+## What's New in v0.7.0 — Judgment plane (above Herdr, not beside it)
 
-Scout is **not** a PTY multiplexer ([Herdr](https://herdr.dev/) owns that). It is a clean, extensible **orchestration control plane** we teach agents (Dottie-claw first) to drive via skills + MCP.
+**Thesis:** Most agent managers are multiplexers. **Scout is a judgment plane.**
+
+[Herdr](https://herdr.dev/) owns panes / SSH attach / responsive TUI. Scout refuses that trap and owns what multiplexers cannot: **trust · world tools · judgment · memory · learning**.
 
 ```bash
-# Teach Dottie-claw (copies SKILL.md into ~/.dottie-claw/skills/)
+# Differentiator cockpit
+scout --json planes thesis
+scout --json planes compare      # honest matrix vs herdr/tmux/apps
+scout --json planes status       # Trust · World · Herd · Judgment · Memory
+scout --json planes loop         # act → audit → rft → ava flywheel
+
+# Teach Dottie-claw
 scout skill teach --target dottie
 scout skill show scout
 
-# Herd orchestration (wait/read/report)
-scout --json herd status
-scout herd create --label api --cwd ~/project
+# Herd ledger (not a PTY multiplexer)
 scout herd start api --cmd "pytest -q"
 scout --json herd wait api --status done --timeout 120
-scout herd read api --lines 40
-scout herd herdr          # detect Herdr + pairing notes
 
-# MCP for Dottie / Cursor / Claude — tools named scout_<plugin>
+# MCP — scout_<plugin> tools
 scout mcp serve
 ```
 
-North star: `docs/FOUNDATION.md`. Also `docs/herdr-inspired.md`, `bigbang/skills/scout/SKILL.md`.
+Read: `docs/DIFFERENTIATION.md` · `docs/FOUNDATION.md` · `bigbang/skills/scout/SKILL.md`
 
 ## What's New in v0.6.0 — Scout rename 🐾 + RTX Releases Auto-Read
 
