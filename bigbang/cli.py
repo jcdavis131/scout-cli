@@ -10,6 +10,7 @@ from pathlib import Path
 import typer
 from rich.console import Console
 
+from bigbang.core.cli_ux import examples_epilog
 from bigbang.core.plugin_loader import discover_plugins
 from bigbang.core.output import set_json_mode
 
@@ -37,10 +38,27 @@ class ScoutTyper(typer.Typer):
 # Root app - primary name scout, not bb/meta
 app = ScoutTyper(
     name="scout",
-    help="Scout CLI 🐾 — personal control plane (ex-BigBang). Local-first, agent-native, HOME-only. Ava-brained + RTX offload.",
+    help=(
+        "Scout CLI 🐾 — personal control plane (ex-BigBang). "
+        "Local-first, agent-native, HOME-only. Ava-brained + RTX offload.\n\n"
+        "Discover incrementally: [bold]scout --help[/bold] → "
+        "[bold]scout <plugin> --help[/bold] → [bold]scout <plugin> <cmd> --help[/bold]."
+    ),
     add_completion=True,
     no_args_is_help=True,
     rich_markup_mode="rich",
+    epilog=examples_epilog(
+        [
+            "scout --help",
+            "scout tools --help",
+            "scout --json tools list",
+            "scout --json system doctor",
+            "scout auth set-token github --token <token>",
+            "printf '%s' \"$TOKEN\" | scout secrets set GITHUB_TOKEN --stdin",
+            "scout agent run \"list my tools\" --execute",
+            "scout mcp serve   # stdio MCP for Cursor/Claude",
+        ]
+    ),
 )
 console = Console()
 
@@ -49,6 +67,7 @@ def main(
     json: bool = typer.Option(False, "--json", help="Output structured JSON for agents"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose logs"),
 ):
+    """Scout root. Prefer flags over prompts; use --json for machine output."""
     set_json_mode(json)
 
 # Auto-discover plugins

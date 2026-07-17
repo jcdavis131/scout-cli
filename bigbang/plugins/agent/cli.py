@@ -382,11 +382,20 @@ def _execute_plan(plan: List[str]) -> List[Dict[str, Any]]:
     return results
 
 
-@app.command("run")
+@app.command(
+    "run",
+    epilog=(
+        "\nExamples:\n"
+        "  scout agent run \"list my tools\"                 # plan only (safe default)\n"
+        "  scout --json agent run \"system doctor\" --execute\n"
+        "  scout agent run \"check write slop on README\" --execute\n"
+    ),
+)
 def run(
     task: str = typer.Argument(..., help="natural language e.g. 'summarize my GitHub PRs and post to family brain'"),
     execute: bool = typer.Option(False, "--execute", help="Actually run the plan steps (default: plan only)"),
 ):
+    """Plan (default) or execute a natural-language task via Ava routing."""
     tools = list_tools()
     base = get_ollama_base(timeout=2.0) if _HAS_LLM else None
     try:
