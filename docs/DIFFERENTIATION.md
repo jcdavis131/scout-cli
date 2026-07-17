@@ -39,7 +39,7 @@ Dottie-claw (and any agent) should:
 
 | Plane | Question it answers | Scout surface | Herdr? |
 |---|---|---|---|
-| **Trust** | May this agent do that? | `secrets` · `auth` · `system policy` · audit.jsonl | — |
+| **Trust** | May this agent do that — and does anything leave without consent? | `secrets` · `auth` · `system policy` · **local** `audit.jsonl` · **no product telemetry** | no telemetry (shared value) |
 | **World** | What internet tools exist? | `tools` · `mcp` · OpenAPI/MCP adapters | — |
 | **Herd** | What’s running / blocked / done? | `herd` wait/read/report (ledger, not PTY) | panes* |
 | **Judgment** | What should we do next? | `ava route` · `agent run` · Frontier-minded bus | — |
@@ -65,6 +65,27 @@ Dottie-claw (and any agent) should:
 | **Installable agent curriculum** | — | partial | skill | **✓ `scout skill teach`** |
 | Agents can orchestrate it | scriptable | partial | ✓ | **✓ JSON+MCP** |
 | Browser dashboard / account | — | often | — | — |
+
+---
+
+## Decision: audit ∈ Trust · telemetry ∉ Trust
+
+Research (Herdr brand, OpenClaw/claw norms, Codex-CLI governance pressure, local-AI audit practice):
+
+| | **Local audit** (Scout has) | **Product telemetry** (Scout refuses) |
+|---|---|---|
+| Destination | Your disk (`~/.local/share/bigbang/`) | Vendor / phone-home |
+| Purpose | Policy forensics + RFT learning loop | Product analytics / crash funnels |
+| Consent | Implicit: you ran the command on your machine | Must be opt-in if it ever exists |
+| Peer signal | LocalMode, security CLIs treat audit as evidence | Herdr/OpenClaw market “no telemetry” as trust |
+
+**Decision (locked):**
+
+1. **Audit is part of Trust** — append-only, redacted, local JSONL you own.  
+2. **Telemetry is not a Trust feature** — it is a Trust *boundary*: Scout does not phone home.  
+3. If Cam ever wants dashboards, that is an **opt-in local export** (you choose the sink), never default Scout-product telemetry. Herdr’s community “telemetry bridge” pattern is the right shape: user-owned, opt-in, not the core binary.
+
+Do not put a `telemetry:` block inside Trust as a capability we ship. Put **`phone_home: false`** as a Trust invariant.
 
 ---
 

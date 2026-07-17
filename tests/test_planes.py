@@ -31,6 +31,10 @@ def test_planes_status_envelope():
     assert "judgment plane" in body["thesis"].lower() or "Judgment" in body["thesis"]
     ids = [p["id"] for p in body["planes"]]
     assert ids == ["trust", "world", "herd", "judgment", "memory"]
+    trust = body["planes"][0]
+    assert trust["signals"]["product_telemetry"] is False
+    assert trust["signals"]["phone_home"] is False
+    assert trust["signals"]["local_audit"] is True
 
 
 def test_planes_bare_defaults_to_status():

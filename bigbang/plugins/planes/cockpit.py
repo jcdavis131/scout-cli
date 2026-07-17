@@ -39,7 +39,7 @@ def trust_plane() -> Dict[str, Any]:
     return {
         "id": "trust",
         "title": "Trust",
-        "question": "May this agent do that?",
+        "question": "May this agent do that — and does anything leave without consent?",
         "ok": True,
         "healthy": bool(vault["ok"] and audit["ok"]),
         "signals": {
@@ -48,6 +48,10 @@ def trust_plane() -> Dict[str, Any]:
             "secret_keys": len(keys),
             "plugins_with_manifest_caps": capped,
             "plugins_total": len(list_plugin_names()),
+            # Invariant: local audit ∈ Trust; product telemetry ∉ Trust (see docs/DIFFERENTIATION.md)
+            "local_audit": True,
+            "product_telemetry": False,
+            "phone_home": False,
         },
         "commands": [
             "scout --json system doctor",
@@ -218,12 +222,20 @@ def compare_matrix() -> Dict[str, Any]:
             "scout_note": "tools + mcp + policy manifests",
         },
         {
-            "capability": "Vault + default-deny policy + audit",
+            "capability": "Vault + default-deny policy + local audit",
             "tmux": False,
             "agent_apps": "varies",
             "herdr": False,
             "scout": True,
-            "scout_note": "Trust plane",
+            "scout_note": "Trust plane (audit stays on your disk)",
+        },
+        {
+            "capability": "No product telemetry / no phone-home",
+            "tmux": True,
+            "agent_apps": "often no",
+            "herdr": True,
+            "scout": True,
+            "scout_note": "Shared value with Herdr; telemetry is a Trust boundary, not a feature",
         },
         {
             "capability": "Audit → RFT training loop",

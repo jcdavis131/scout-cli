@@ -51,7 +51,7 @@ scout skill show scout
 
 | Plane | Question | Start here |
 |---|---|---|
-| Trust | May this agent do that? | `system doctor` · `secrets` · `policy` |
+| Trust | May this agent do that — without phone-home? | `system doctor` · `secrets` · `policy` · **local audit only** (no product telemetry) |
 | World | What tools exist? | `tools list` · `mcp serve` |
 | Herd | What’s running/blocked/done? | `herd status` · `herd wait` |
 | Judgment | What next? | `ava route` · `agent run` |
