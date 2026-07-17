@@ -5,7 +5,7 @@
 - [x] `scout skill` + master SKILL.md for Dottie-claw
 - [x] MCP scout_* tools (+ bb_ compat)
 - [x] Scaffold emits foundation-shaped plugins
-- [ ] Tests green + commit/push/PR update
+- [x] Tests green + commit/push/PR update (102 passed)
 - [ ] (F1) Envelope migrate herd/secrets/tools
 - [ ] (F2) herd send/watch
 - [ ] (F3) plugin marketplace
