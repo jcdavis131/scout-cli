@@ -276,6 +276,36 @@ def _heuristic_route(task: str) -> Dict[str, Any]:
             "reason": "graphify/pgraphify — query-first Personal Graphify baked into scout",
             "available_tools": list(tools.keys())[:12],
         }
+    if any(
+        k in q
+        for k in [
+            "herd",
+            "herdr",
+            "multiplexer",
+            "agent status",
+            "blocked agent",
+            "wait for agent",
+            "session ledger",
+        ]
+    ):
+        if "wait" in q:
+            cmd = "scout --json herd wait api --status done --timeout 120"
+        elif "read" in q or "log" in q:
+            cmd = "scout herd read api --lines 40"
+        elif "start" in q or "run" in q:
+            cmd = 'scout herd start --label api --cmd "pytest -q"'
+        elif "herdr" in q:
+            cmd = "scout --json herd herdr"
+        else:
+            cmd = "scout --json herd status"
+        return {
+            "router": "stub",
+            "picked_tool": "herd",
+            "picked_command": cmd,
+            "confidence": 0.94,
+            "reason": "herd/herdr — Scout session control surface (pairs with Herdr PTY multiplexer)",
+            "available_tools": list(tools.keys())[:12],
+        }
     if any(k in q for k in ["rtx", "offload", "alienware", "local gpu", "autoresearch"]):
         return {
             "router": "stub",

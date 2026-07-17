@@ -1,10 +1,26 @@
-# Scout CLI 🐾 — One CLI to Rule All Tools (ex-BigBang) v0.6.0
+# Scout CLI 🐾 — One CLI to Rule All Tools (ex-BigBang) v0.7.0
 
-> Agent-native, security-first, local-first control plane for *every* internet tool, API, and MCP server. Ava-brained + RTX offload. Now v0.6.0 with scout rename + GitHub Releases → Dashboard auto-read.
+> Agent-native, security-first, local-first control plane for *every* internet tool, API, and MCP server. Ava-brained + RTX offload. Now v0.7 with **herd** — a [Herdr](https://herdr.dev/)-inspired session control surface (wait/read/report) that pairs with real PTY multiplexers.
 
 **Solo personal project, no connection to employer, built with public/free-tier only.**
 
 Primary command: `scout` (aliases: `bb`, `bigbang`, `dv`, `kitty` for compat) — `scout --help` / `scout --json rtx status`
+
+## What's New in v0.7.0 — Herd control surface (Herdr-inspired)
+
+Scout is **not** a PTY multiplexer ([Herdr](https://herdr.dev/) owns that). Scout grows the *orchestration* layer Herdr proves out: semantic agent state, wait/read/report, agent skill, JSON-first CLI.
+
+```bash
+scout --json herd status
+scout herd create --label api --cwd ~/project
+scout herd start api --cmd "pytest -q"
+scout --json herd wait api --status done --timeout 120
+scout herd read api --lines 40
+scout herd report api --status blocked --note "need GITHUB_TOKEN"
+scout herd herdr          # detect Herdr + pairing notes
+```
+
+See `docs/herdr-inspired.md` and `bigbang/skills/scout-herd.md`.
 
 ## What's New in v0.6.0 — Scout rename 🐾 + RTX Releases Auto-Read
 

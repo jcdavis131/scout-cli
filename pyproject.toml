@@ -1,7 +1,7 @@
 [project]
 name = "scout-cli"
-version = "0.6.1"
-description = "Scout CLI - personal control plane (ex-BigBang). Agent-native, security-first, Ava brain + authentic writing + lab MRR + RTX offload. HOME-only."
+version = "0.7.0"
+description = "Scout CLI - personal control plane (ex-BigBang). Agent-native herd sessions + Ava brain + tools/MCP + authentic writing + RTX offload. HOME-only."
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}

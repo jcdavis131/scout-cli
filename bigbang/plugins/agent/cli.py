@@ -240,6 +240,10 @@ def _heuristic_plan(task: str) -> Dict[str, Any]:
         "knowledge graph": "scout graphify onboard",
         "god node": "scout graphify onboard",
         "task compiler": "scout graphify task 'wire Scout to Ava'",
+        "herd": "scout --json herd status",
+        "herdr": "scout --json herd herdr",
+        "multiplexer": "scout --json herd herdr",
+        "blocked": "scout --json herd list --status blocked",
     }
 
     for k, v in builtin_hints.items():

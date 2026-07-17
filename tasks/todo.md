@@ -1,10 +1,12 @@
-# Board — scout-cli × cli-for-agents
+# Board — scout × Herdr-inspired build
 
-- [x] Session orient + live CLI inventory
-- [x] Hyper-detail review → `docs/cli-for-agents-review.md`
-- [x] `core/cli_ux.py` helpers
-- [x] secrets/auth/tools/root/write/agent agentability pass
-- [x] pytest green for new + existing suite (89 passed)
-- [x] Commit, push, open PR
-- [ ] (backlog) Wave 1 remainder: mcp/tasks/rtx/system Examples + dry-run
-- [ ] (backlog) Wave 2–3 from review doc
+- [x] Research herdr.dev (multiplexer vs control plane)
+- [x] Gap map → `docs/herdr-inspired.md`
+- [x] Ship `scout herd` plugin (status/list/create/start/wait/read/report/close/herdr)
+- [x] Agent skill `bigbang/skills/scout-herd.md`
+- [x] Ava + agent routing hints
+- [x] Tests (`tests/test_herd.py`) — suite green
+- [ ] Commit, push, update PR
+- [ ] (next) herd send / event stream
+- [ ] (next) `scout plugin search` GitHub topic marketplace
+- [ ] (next) Import Cursor cloud agents into herd ledger

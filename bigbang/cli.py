@@ -56,6 +56,8 @@ app = ScoutTyper(
             "scout auth set-token github --token <token>",
             "printf '%s' \"$TOKEN\" | scout secrets set GITHUB_TOKEN --stdin",
             "scout agent run \"list my tools\" --execute",
+            "scout --json herd status",
+            'scout herd start --label api --cmd "pytest -q"',
             "scout mcp serve   # stdio MCP for Cursor/Claude",
         ]
     ),
