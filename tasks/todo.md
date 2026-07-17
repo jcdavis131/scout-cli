@@ -6,7 +6,7 @@
 - [x] Agent skill `bigbang/skills/scout-herd.md`
 - [x] Ava + agent routing hints
 - [x] Tests (`tests/test_herd.py`) — suite green
-- [ ] Commit, push, update PR
+- [x] Commit, push, update PR
 - [ ] (next) herd send / event stream
 - [ ] (next) `scout plugin search` GitHub topic marketplace
 - [ ] (next) Import Cursor cloud agents into herd ledger
