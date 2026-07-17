@@ -244,6 +244,10 @@ def _heuristic_plan(task: str) -> Dict[str, Any]:
         "herdr": "scout --json herd herdr",
         "multiplexer": "scout --json herd herdr",
         "blocked": "scout --json herd list --status blocked",
+        "dottie": "scout skill teach --target dottie",
+        "skill": "scout skill list",
+        "teach": "scout skill teach --target dottie",
+        "curriculum": "scout skill show scout",
     }
 
     for k, v in builtin_hints.items():

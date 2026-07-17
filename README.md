@@ -6,21 +6,28 @@
 
 Primary command: `scout` (aliases: `bb`, `bigbang`, `dv`, `kitty` for compat) — `scout --help` / `scout --json rtx status`
 
-## What's New in v0.7.0 — Herd control surface (Herdr-inspired)
+## What's New in v0.7.0 — Foundation + herd + teach Dottie-claw
 
-Scout is **not** a PTY multiplexer ([Herdr](https://herdr.dev/) owns that). Scout grows the *orchestration* layer Herdr proves out: semantic agent state, wait/read/report, agent skill, JSON-first CLI.
+Scout is **not** a PTY multiplexer ([Herdr](https://herdr.dev/) owns that). It is a clean, extensible **orchestration control plane** we teach agents (Dottie-claw first) to drive via skills + MCP.
 
 ```bash
+# Teach Dottie-claw (copies SKILL.md into ~/.dottie-claw/skills/)
+scout skill teach --target dottie
+scout skill show scout
+
+# Herd orchestration (wait/read/report)
 scout --json herd status
 scout herd create --label api --cwd ~/project
 scout herd start api --cmd "pytest -q"
 scout --json herd wait api --status done --timeout 120
 scout herd read api --lines 40
-scout herd report api --status blocked --note "need GITHUB_TOKEN"
 scout herd herdr          # detect Herdr + pairing notes
+
+# MCP for Dottie / Cursor / Claude — tools named scout_<plugin>
+scout mcp serve
 ```
 
-See `docs/herdr-inspired.md` and `bigbang/skills/scout-herd.md`.
+North star: `docs/FOUNDATION.md`. Also `docs/herdr-inspired.md`, `bigbang/skills/scout/SKILL.md`.
 
 ## What's New in v0.6.0 — Scout rename 🐾 + RTX Releases Auto-Read
 

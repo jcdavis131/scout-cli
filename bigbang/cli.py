@@ -58,7 +58,8 @@ app = ScoutTyper(
             "scout agent run \"list my tools\" --execute",
             "scout --json herd status",
             'scout herd start --label api --cmd "pytest -q"',
-            "scout mcp serve   # stdio MCP for Cursor/Claude",
+            "scout skill teach --target dottie",
+            "scout mcp serve   # stdio MCP for Cursor/Claude/Dottie",
         ]
     ),
 )

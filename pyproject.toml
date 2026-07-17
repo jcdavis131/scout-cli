@@ -44,6 +44,13 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 include = ["bigbang", "bigbang.*"]
 
+[tool.setuptools.package-data]
+bigbang = [
+  "skills/*.md",
+  "skills/*/SKILL.md",
+  "plugins/*/manifest.yaml",
+]
+
 [tool.ruff]
 line-length = 100
 target-version = "py310"

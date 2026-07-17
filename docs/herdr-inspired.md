@@ -5,6 +5,8 @@
 
 Solo personal project, no connection to employer, built with public/free-tier only.
 
+**Foundation plan:** see [`docs/FOUNDATION.md`](FOUNDATION.md) — Scout stays the orchestration control plane; we teach Dottie-claw via `scout skill teach`.
+
 ## Positioning (do not confuse the products)
 
 | | **Herdr** | **Scout** |

@@ -279,6 +279,25 @@ def _heuristic_route(task: str) -> Dict[str, Any]:
     if any(
         k in q
         for k in [
+            "dottie",
+            "dottie-claw",
+            "teach scout",
+            "skill install",
+            "install skill",
+            "openclaw skill",
+        ]
+    ):
+        return {
+            "router": "stub",
+            "picked_tool": "skill",
+            "picked_command": "scout skill teach --target dottie",
+            "confidence": 0.96,
+            "reason": "dottie-claw / teach — install Scout skills for the agent curriculum",
+            "available_tools": list(tools.keys())[:12],
+        }
+    if any(
+        k in q
+        for k in [
             "herd",
             "herdr",
             "multiplexer",

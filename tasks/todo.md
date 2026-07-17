@@ -1,12 +1,11 @@
-# Board — scout × Herdr-inspired build
+# Board — Scout foundation × Dottie-claw
 
-- [x] Research herdr.dev (multiplexer vs control plane)
-- [x] Gap map → `docs/herdr-inspired.md`
-- [x] Ship `scout herd` plugin (status/list/create/start/wait/read/report/close/herdr)
-- [x] Agent skill `bigbang/skills/scout-herd.md`
-- [x] Ava + agent routing hints
-- [x] Tests (`tests/test_herd.py`) — suite green
-- [x] Commit, push, update PR
-- [ ] (next) herd send / event stream
-- [ ] (next) `scout plugin search` GitHub topic marketplace
-- [ ] (next) Import Cursor cloud agents into herd ledger
+- [x] FOUNDATION.md plan (orchestration ≠ multiplexer)
+- [x] `core/contract.py` ok/err/make_plugin_app
+- [x] `scout skill` + master SKILL.md for Dottie-claw
+- [x] MCP scout_* tools (+ bb_ compat)
+- [x] Scaffold emits foundation-shaped plugins
+- [ ] Tests green + commit/push/PR update
+- [ ] (F1) Envelope migrate herd/secrets/tools
+- [ ] (F2) herd send/watch
+- [ ] (F3) plugin marketplace
