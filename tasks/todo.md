@@ -4,7 +4,7 @@
 - [x] DIFFERENTIATION.md — refuse multiplexer trap
 - [x] `scout planes` status/compare/loop/thesis
 - [x] Skill + Ava routing updated for judgment plane
-- [ ] Tests green + commit/push/PR update
+- [x] Tests green + commit/push/PR update (108 passed)
 - [ ] (F1) Envelope migrate herd/secrets/tools
 - [ ] (F2) herd send/watch
 - [ ] (F3) plugin marketplace
