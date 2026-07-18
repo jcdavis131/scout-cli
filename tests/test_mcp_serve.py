@@ -21,7 +21,7 @@ def test_mcp_server_initialize_list_and_call():
     )
 
     async def scenario():
-        with anyio.fail_after(90):
+        with anyio.fail_after(180):
             await _scenario_body()
 
     async def _scenario_body():

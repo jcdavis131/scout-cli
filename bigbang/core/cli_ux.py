@@ -10,6 +10,7 @@ from typing import Optional, Sequence
 
 import typer
 
+from bigbang.core.contract import err
 from bigbang.core.output import emit, is_json
 
 
@@ -35,14 +36,11 @@ def fail_agent(
     discover: Optional[str] = None,
     code: int = 1,
 ) -> None:
-    """Emit a structured error with a correct example invocation, then exit."""
-    payload = {
-        "error": error,
-        "example": example,
-    }
-    if discover:
-        payload["discover"] = discover
-    emit(payload, command=command)
+    """Emit foundation err envelope with a correct example invocation, then exit."""
+    emit(
+        err(error, command=command, example=example, discover=discover),
+        command=command,
+    )
     raise typer.Exit(code=code)
 
 

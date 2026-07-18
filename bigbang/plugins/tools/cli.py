@@ -1,3 +1,4 @@
+from pathlib import Path
 from typing import Optional
 from urllib.parse import urlparse as _up
 import json
@@ -6,27 +7,33 @@ import re
 import typer
 
 from bigbang.core.cli_ux import examples_epilog, fail_agent
+from bigbang.core.contract import make_plugin_app, ok
 from bigbang.core.output import emit
 from bigbang.core.registry import register_tool, list_tools, get_tool, unregister_tool, search_tools
-from bigbang.core.policy import enforce_or_raise, enforce_user_url_or_raise
+from bigbang.core.policy import enforce_or_raise, enforce_user_url_or_raise, load_manifest
 from bigbang.core.http_utils import sanitize_no_proxy_env
 from bigbang.core.openapi import fetch_spec, generate_typer_plugin, call_openapi, parse_operations
 
 sanitize_no_proxy_env()
 
-app = typer.Typer(
-    name="tools",
-    help="🧰 Universal tool registry — one CLI to rule all internet tools",
-    no_args_is_help=True,
-    epilog=examples_epilog(
-        [
-            "scout tools list",
-            "scout tools add github --type openapi --url https://api.github.com/openapi.json",
-            "scout --json tools search github",
-            "scout tools rm old-tool --force",
-        ]
-    ),
+app = make_plugin_app(
+    "tools",
+    "🧰 Universal tool registry — one CLI to rule all internet tools",
+    examples=[
+        "scout tools list",
+        "scout tools add github --type openapi --url https://api.github.com/openapi.json",
+        "scout --json tools search github",
+        "scout tools rm old-tool --force",
+    ],
 )
+
+
+def _manifest():
+    return load_manifest(Path(__file__).resolve().parent)
+
+
+def _registry_path() -> str:
+    return str(Path.home() / ".local" / "share" / "bigbang" / "registry.json")
 
 
 @app.command("list", epilog=examples_epilog(["scout --json tools list", "scout tools list --tag api"]))
@@ -36,12 +43,12 @@ def list_cmd(tag: Optional[str] = typer.Option(None, help="filter by tag")):
     if tag:
         tools = {k: v for k, v in tools.items() if tag in v.get("tags", [])}
     emit(
-        {
-            "tools": tools,
-            "count": len(tools),
-            "example": "scout tools search <query>",
-            "discover": "scout mcp manifest",
-        },
+        ok(
+            {"tools": tools, "count": len(tools)},
+            command="tools list",
+            example="scout tools search <query>",
+            discover="scout mcp manifest",
+        ),
         command="tools list",
     )
 
@@ -95,15 +102,20 @@ def add_cmd(
         except Exception as e:
             manifest["openapi_error"] = str(e)
 
+    enforce_or_raise(_manifest(), "fs_write", _registry_path())
     register_tool(name, manifest)
     emit(
-        {
-            "message": f"tool {name} registered",
-            "overwrote": existed,
-            "manifest": manifest,
-            "example": f"scout tools call {name} <operation>",
-            "next": f"scout tools generate {name} or scout tools call {name} <operation>",
-        },
+        ok(
+            {
+                "message": f"tool {name} registered",
+                "overwrote": existed,
+                "manifest": manifest,
+                "next": f"scout tools generate {name} or scout tools call {name} <operation>",
+            },
+            command="tools add",
+            example=f"scout tools call {name} <operation>",
+            discover="scout tools list",
+        ),
         command="tools add",
     )
 
@@ -119,7 +131,10 @@ def get_cmd(name: str = typer.Argument(..., help="registered tool name")):
             example=f"scout tools add {name} --type openapi --url <spec-url>",
             discover="scout tools list",
         )
-    emit({"name": name, **t}, command="tools get")
+    emit(
+        ok({"name": name, **t}, command="tools get", example=f"scout tools call {name} <op>"),
+        command="tools get",
+    )
 
 
 @app.command(
@@ -139,7 +154,14 @@ def rm_cmd(
     """Unregister a tool. Idempotent with --force when missing."""
     exists = get_tool(name) is not None
     if dry_run:
-        emit({"would_remove": name, "exists": exists, "dry_run": True}, command="tools rm")
+        emit(
+            ok(
+                {"would_remove": name, "exists": exists, "dry_run": True},
+                command="tools rm",
+                example=f"scout tools rm {name} --force",
+            ),
+            command="tools rm",
+        )
         return
     if exists and not force:
         # No confirm prompt for registry entries (low blast radius), but require
@@ -150,15 +172,30 @@ def rm_cmd(
             example=f"scout tools rm {name} --force",
             discover="scout tools list",
         )
-    ok = unregister_tool(name) if exists else False
-    emit({"removed": name, "ok": ok, "existed": exists}, command="tools rm")
+    enforce_or_raise(_manifest(), "fs_write", _registry_path())
+    removed = unregister_tool(name) if exists else False
+    emit(
+        ok(
+            {"removed": name, "removed_ok": removed, "existed": exists},
+            command="tools rm",
+            example="scout --json tools list",
+        ),
+        command="tools rm",
+    )
 
 
 @app.command("search", epilog=examples_epilog(["scout tools search translate"]))
 def search_cmd(query: str = typer.Argument(..., help="search e.g. 'translate', 'github'")):
     """Search registered tools by name/description/tags."""
     results = search_tools(query)
-    emit({"query": query, "results": results, "count": len(results)}, command="tools search")
+    emit(
+        ok(
+            {"query": query, "results": results, "count": len(results)},
+            command="tools search",
+            example="scout tools get <name>",
+        ),
+        command="tools search",
+    )
 
 
 @app.command(
@@ -207,32 +244,31 @@ def call_cmd(
                     )
                     parsed_args = {}
             result = call_openapi(tool, action, parsed_args)
-            emit(result, command="tools call")
-            return
-        except Exception as e:
             emit(
-                {
-                    "tool": name,
-                    "action": action,
-                    "args": args,
-                    "manifest": tool,
-                    "policy": "checked ✓",
-                    "error": str(e),
-                    "note": "real call attempted and failed",
-                },
+                ok(result, command="tools call", example=f"scout tools generate {name}"),
                 command="tools call",
             )
             return
+        except Exception as e:
+            fail_agent(
+                str(e),
+                command="tools call",
+                example=f'scout tools call {name} {action} \'{{"param":"value"}}\'',
+                discover=f"scout tools get {name}",
+            )
     emit(
-        {
-            "tool": name,
-            "action": action,
-            "args": args,
-            "manifest": tool,
-            "policy": "checked ✓ — network allowed",
-            "example": f"scout tools generate {name}",
-            "note": "use scout tools generate for per-operation commands",
-        },
+        ok(
+            {
+                "tool": name,
+                "action": action,
+                "args": args,
+                "manifest": tool,
+                "policy": "checked — network allowed",
+                "note": "use scout tools generate for per-operation commands",
+            },
+            command="tools call",
+            example=f"scout tools generate {name}",
+        ),
         command="tools call",
     )
 
@@ -263,17 +299,26 @@ def import_openapi(
             "tags": ["openapi", "auto-imported"],
             "capabilities": {"network": {"enabled": True, "domains": [domain or url]}},
         }
+        enforce_or_raise(_manifest(), "fs_write", _registry_path())
         register_tool(derived_name, manifest)
         emit(
-            {
-                "imported": derived_name,
-                "paths": list(spec.get("paths", {}).keys())[:10],
-                "manifest": manifest,
-            },
+            ok(
+                {
+                    "imported": derived_name,
+                    "paths": list(spec.get("paths", {}).keys())[:10],
+                    "manifest": manifest,
+                },
+                command="tools import-openapi",
+                example=f"scout tools generate {derived_name}",
+            ),
             command="tools import-openapi",
         )
     except Exception as e:
-        emit({"error": str(e), "url": url, "example": f"scout tools import-openapi {url}"})
+        fail_agent(
+            str(e),
+            command="tools import-openapi",
+            example=f"scout tools import-openapi {url}",
+        )
 
 
 @app.command("generate")
@@ -304,19 +349,30 @@ def generate_cmd(name: str = typer.Argument(..., help="tool name already in regi
         sanitize_no_proxy_env()
         spec = fetch_spec(url)
         ops = parse_operations(spec)
+        # Codegen writes under bigbang/plugins/<name>/ — require fs_write.
+        dest = Path(__file__).resolve().parents[1] / name
+        enforce_or_raise(_manifest(), "fs_write", str(dest))
         files = generate_typer_plugin(name, spec, url)
         emit(
-            {
-                "name": name,
-                "url": url,
-                "generated": files,
-                "operations": len(ops),
-                "next": f"scout {name} --help",
-            },
+            ok(
+                {
+                    "name": name,
+                    "url": url,
+                    "generated": files,
+                    "operations": len(ops),
+                    "next": f"scout {name} --help",
+                },
+                command="tools generate",
+                example=f"scout {name} --help",
+            ),
             command="tools generate",
         )
     except Exception as e:
-        emit({"error": str(e), "url": url})
+        fail_agent(
+            str(e),
+            command="tools generate",
+            example=f"scout tools add {name} --type openapi --url <spec-url>",
+        )
 
 
 def register(root):

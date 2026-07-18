@@ -2,22 +2,9 @@
 from __future__ import annotations
 
 import json
-import subprocess
 from pathlib import Path
 
-CLI = ["python3", "-m", "bigbang.cli"]
-ROOT = Path(__file__).resolve().parents[1]
-
-
-def _run(args, *, env=None, timeout=20):
-    return subprocess.run(
-        CLI + args,
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-        cwd=str(ROOT),
-        env=env,
-    )
+from tests._cli import ROOT, run_cli as _run
 
 
 def test_skill_plugin_discovered():

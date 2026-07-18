@@ -16,10 +16,16 @@ from datetime import datetime, timezone
 import typer
 from rich.console import Console
 
-from bigbang.core.cli_ux import examples_epilog, prompt_secret_or_fail, require_secret_value
+from bigbang.core.cli_ux import (
+    examples_epilog,
+    fail_agent,
+    is_interactive,
+    prompt_secret_or_fail,
+    require_secret_value,
+)
+from bigbang.core.http_utils import sanitize_no_proxy_env
 from bigbang.core.output import emit
 from bigbang.core.security import set_secret, get_secret
-from bigbang.core.http_utils import sanitize_no_proxy_env
 
 # Ensure NO_PROXY sanitized for httpx
 sanitize_no_proxy_env()
@@ -975,10 +981,21 @@ def status_cmd(service: Optional[str] = typer.Argument(None, help="Service to ch
         )
 
 
-@app.command("logout")
+@app.command(
+    "logout",
+    epilog=examples_epilog(
+        [
+            "scout auth logout github --force",
+            "scout auth logout github --dry-run",
+            "scout auth logout github --keep-vault --force",
+        ]
+    ),
+)
 def logout(
     service: str = typer.Argument(..., help="service to logout"),
     delete_vault: bool = typer.Option(True, "--delete-vault/--keep-vault", help="Delete from vault as well"),
+    force: bool = typer.Option(False, "--force", "-f", help="required in non-interactive mode"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="preview only"),
 ):
     """
     Remove service from auth.json and optionally delete vault secret.
@@ -986,20 +1003,38 @@ def logout(
     svc = service.lower().strip()
     db = _load_auth()
     existed = svc in db
+    cfg = SERVICE_CONFIGS.get(svc)
+    vault_key = (cfg.get("vault_key") if cfg else None) or f"{svc.upper()}_TOKEN"
+    if dry_run:
+        emit(
+            {
+                "would_logout": svc,
+                "existed": existed,
+                "delete_vault": delete_vault,
+                "vault_key": vault_key,
+                "dry_run": True,
+                "example": f"scout auth logout {svc} --force",
+            },
+            command="auth logout",
+        )
+        return
+    if (existed or delete_vault) and not force and not is_interactive():
+        fail_agent(
+            "Refusing to logout without --force in non-interactive mode",
+            command="auth logout",
+            example=f"scout auth logout {svc} --force",
+        )
     if existed:
         del db[svc]
         _save_auth(db)
 
     vault_deleted = False
     if delete_vault:
-        cfg = SERVICE_CONFIGS.get(svc)
-        vault_key = (cfg.get("vault_key") if cfg else None) or f"{svc.upper()}_TOKEN"
         try:
             from bigbang.core.security import delete_secret
 
             vault_deleted = delete_secret(vault_key)
         except Exception:
-            # Fallback: overwrite with empty? security.delete_secret handles keyring too
             vault_deleted = False
 
     emit(

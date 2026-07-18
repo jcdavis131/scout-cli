@@ -2,22 +2,11 @@
 from __future__ import annotations
 
 import json
-import subprocess
+import sys
 import time
 from pathlib import Path
 
-CLI = ["python3", "-m", "bigbang.cli"]
-ROOT = Path(__file__).resolve().parents[1]
-
-
-def _run(args, *, timeout=30):
-    return subprocess.run(
-        CLI + args,
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-        cwd=str(ROOT),
-    )
+from tests._cli import ROOT, run_cli as _run
 
 
 def test_herd_plugin_discovered():
@@ -39,23 +28,24 @@ def test_herd_status_json():
     r = _run(["--json", "herd", "status"])
     assert r.returncode == 0, r.stderr
     data = json.loads(r.stdout)
-    assert "by_status" in data
-    assert "herdr" in data
-    assert "installed" in data["herdr"]
+    assert data["ok"] is True
+    body = data["data"]
+    assert "by_status" in body
+    assert "herdr" in body
+    assert "installed" in body["herdr"]
 
 
 def test_herd_create_start_wait_read_close():
     label = f"t{int(time.time()) % 100000}"
     c = _run(["--json", "herd", "create", "--label", label, "--cwd", str(ROOT)])
     assert c.returncode == 0, c.stderr + c.stdout
-    created = json.loads(c.stdout)["created"]
+    created = json.loads(c.stdout)["data"]["created"]
     assert created["status"] == "idle"
 
-    s = _run(
-        ["--json", "herd", "start", label, "--cmd", "python3 -c \"print('herd-ok')\""]
-    )
+    cmd = f'{sys.executable} -c "print(\'herd-ok\')"'
+    s = _run(["--json", "herd", "start", label, "--cmd", cmd])
     assert s.returncode == 0, s.stderr + s.stdout
-    started = json.loads(s.stdout)["started"]
+    started = json.loads(s.stdout)["data"]["started"]
     assert started["pid"]
 
     w = _run(
@@ -63,13 +53,13 @@ def test_herd_create_start_wait_read_close():
         timeout=20,
     )
     assert w.returncode == 0, w.stderr + w.stdout
-    waited = json.loads(w.stdout)
+    waited = json.loads(w.stdout)["data"]
     assert waited["matched"] is True
     assert waited["session"]["status"] == "done"
 
     rd = _run(["--json", "herd", "read", label, "--lines", "20"])
     assert rd.returncode == 0
-    body = json.loads(rd.stdout)
+    body = json.loads(rd.stdout)["data"]
     assert any("herd-ok" in line for line in body["lines"])
 
     rep = _run(
@@ -79,7 +69,7 @@ def test_herd_create_start_wait_read_close():
     assert rep.returncode == 0, rep.stderr + rep.stdout
 
     dry = _run(["--json", "herd", "close", label, "--dry-run"])
-    assert json.loads(dry.stdout)["dry_run"] is True
+    assert json.loads(dry.stdout)["data"]["dry_run"] is True
 
     cl = _run(["--json", "herd", "close", label, "--force"])
     assert cl.returncode == 0, cl.stderr + cl.stdout
@@ -94,7 +84,7 @@ def test_herd_wait_timeout_exit_2():
         timeout=10,
     )
     assert r.returncode == 2
-    data = json.loads(r.stdout)
+    data = json.loads(r.stdout)["data"]
     assert data["matched"] is False
     _run(["--json", "herd", "close", label, "--force"])
 

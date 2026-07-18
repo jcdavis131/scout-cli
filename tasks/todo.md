@@ -5,6 +5,7 @@
 - [x] `scout planes` status/compare/loop/thesis
 - [x] Skill + Ava routing updated for judgment plane
 - [x] Tests green + commit/push/PR update (108 passed)
-- [ ] (F1) Envelope migrate herd/secrets/tools
+- [x] (F1) Envelope migrate herd/secrets/tools/system + policy enforce + agentability
 - [ ] (F2) herd send/watch
 - [ ] (F3) plugin marketplace
+- [ ] (F4) Dottie heartbeat + RFT loop docs

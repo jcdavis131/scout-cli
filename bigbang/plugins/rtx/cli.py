@@ -11,9 +11,22 @@ from pathlib import Path
 import typer
 import httpx
 
+from bigbang.core.cli_ux import examples_epilog, fail_agent
 from bigbang.core.output import emit
 
-app = typer.Typer(name="rtx", help="🚀 RTX — offload to Alienware RTX 4080/4090 + scout-rtx releases", no_args_is_help=True)
+app = typer.Typer(
+    name="rtx",
+    help="🚀 RTX — offload to Alienware RTX 4080/4090 + scout-rtx releases",
+    no_args_is_help=True,
+    epilog=examples_epilog(
+        [
+            "scout --json rtx status",
+            "scout rtx releases list",
+            "scout rtx releases sync --tag v0.6.0-demo-0715 --dry-run",
+            "scout rtx results --best",
+        ]
+    ),
+)
 
 CUSTOM_ROOT = Path.home() / "workspace" / "autoresearch-rtx-custom"
 BB_OFFLOAD = CUSTOM_ROOT / "bb-offload"
@@ -163,33 +176,65 @@ def programs():
             out.append({"file": p.name, "path": str(p)})
     emit({"programs": out, "root": str(CUSTOM_ROOT), "hint": "Use: .\\scripts\\run-autonomous.ps1 -Program programs\\program-ava.md"})
 
-@app.command("releases")
+@app.command(
+    "releases",
+    epilog=examples_epilog(
+        [
+            "scout rtx releases list",
+            "scout rtx releases sync --tag v0.6.0-demo-0715",
+            "scout rtx releases sync --tag v0.6.0-demo-0715 --dry-run",
+        ]
+    ),
+)
 def releases_cmd(
     action: str = typer.Argument("list", help="list|sync"),
     tag: str = typer.Option("", "--tag", help="tag to sync e.g. v0.6.0-ava-0715"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="preview sync without writing assets"),
 ):
     """List GitHub releases from scout-rtx repo, auto-read src for dashboard"""
     if action == "list":
         try:
             r = httpx.get(f"{GITHUB_API}/releases?per_page=10", headers={"Accept":"application/vnd.github.v3+json","User-Agent":"scout-cli"}, timeout=10.0)
             if r.status_code != 200:
-                emit({"error": f"GitHub API {r.status_code}", "body": r.text[:500], "repo": GITHUB_REPO})
-                return
+                fail_agent(
+                    f"GitHub API {r.status_code}",
+                    command="rtx releases",
+                    example="scout rtx releases list",
+                )
             data = r.json()
             slim = [{"tag_name": d["tag_name"], "name": d.get("name"), "published_at": d.get("published_at"), "html_url": d.get("html_url"), "assets": [{"name": a["name"], "size": a["size"], "download_url": a["browser_download_url"]} for a in d.get("assets",[])]} for d in data]
             emit({"releases": slim, "repo": GITHUB_REPO, "source": f"{GITHUB_API}/releases", "dashboard_auto_read": "every 60s via rtx-offload-dashboard"})
+        except typer.Exit:
+            raise
         except Exception as e:
-            emit({"error": str(e), "repo": GITHUB_REPO})
+            fail_agent(str(e), command="rtx releases", example="scout rtx releases list")
     elif action == "sync":
         if not tag:
-            emit({"error": "need --tag, e.g. scout rtx releases sync --tag v0.6.0-demo-0715"})
-            raise typer.Exit(1)
+            fail_agent(
+                "need --tag",
+                command="rtx releases",
+                example="scout rtx releases sync --tag v0.6.0-demo-0715",
+            )
+        if dry_run:
+            emit(
+                {
+                    "would_sync": tag,
+                    "repo": GITHUB_REPO,
+                    "dry_run": True,
+                    "example": f"scout rtx releases sync --tag {tag}",
+                },
+                command="rtx releases",
+            )
+            return
         # Download results.tsv asset if exists
         try:
             r = httpx.get(f"{GITHUB_API}/releases/tags/{tag}", headers={"Accept":"application/vnd.github.v3+json","User-Agent":"scout-cli"}, timeout=10.0)
             if r.status_code != 200:
-                emit({"error": f"GitHub API {r.status_code}", "body": r.text[:200]})
-                return
+                fail_agent(
+                    f"GitHub API {r.status_code}",
+                    command="rtx releases",
+                    example=f"scout rtx releases sync --tag {tag}",
+                )
             rel = r.json()
             assets = rel.get("assets",[])
             downloaded = 0
@@ -209,10 +254,16 @@ def releases_cmd(
                             (RESULTS_FILE).write_text(main + "\n" + dl.text)
                         downloaded += 1
             emit({"synced": True, "tag": tag, "downloaded_assets": downloaded, "release": rel.get("html_url"), "next": "scout rtx results --best; scout rtx dashboard"})
+        except typer.Exit:
+            raise
         except Exception as e:
-            emit({"error": str(e)})
+            fail_agent(str(e), command="rtx releases", example=f"scout rtx releases sync --tag {tag}")
     else:
-        emit({"error": f"unknown action {action}", "valid": ["list","sync"]})
+        fail_agent(
+            f"unknown action {action}",
+            command="rtx releases",
+            example="scout rtx releases list",
+        )
 
 @app.command("sync")
 def sync_cmd():
