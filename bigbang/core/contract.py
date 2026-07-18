@@ -11,8 +11,6 @@ from typing import Any, Dict, Optional, Sequence
 
 import typer
 
-from bigbang.core.cli_ux import examples_epilog
-
 
 def ok(
     data: Any = None,
@@ -60,6 +58,9 @@ def make_plugin_app(
     no_args_is_help: bool = True,
 ) -> typer.Typer:
     """Create a Typer sub-app with foundation defaults (layered help + Examples)."""
+    # Local import avoids circular import with cli_ux (which imports err from here).
+    from bigbang.core.cli_ux import examples_epilog
+
     kwargs: Dict[str, Any] = {
         "name": name,
         "help": help_text,

@@ -33,7 +33,11 @@ def test_execute_plan_harmless(tmp_path, monkeypatch):
     assert results[0]["executed"] is True
     assert results[0]["exit_code"] == 0
     assert isinstance(results[0]["output"], dict)
-    assert "tools" in results[0]["output"]
+    out0 = results[0]["output"]
+    # Foundation envelope nests payload under data; tolerate legacy flat shape.
+    tools_body = out0.get("data", out0)
+    assert out0.get("ok", True) is True
+    assert "tools" in tools_body
     assert results[1]["executed"] is False
     assert "denied" in results[1]["policy"]
 

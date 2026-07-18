@@ -5,14 +5,45 @@ Primary command is now `scout` — distinct from any work/meta tooling
 """
 import os
 import sys
+from importlib.metadata import PackageNotFoundError, version as pkg_version
 from pathlib import Path
 
 import typer
 from rich.console import Console
 
 from bigbang.core.cli_ux import examples_epilog
+from bigbang.core.contract import ok
+from bigbang.core.output import emit, set_json_mode
 from bigbang.core.plugin_loader import discover_plugins
-from bigbang.core.output import set_json_mode
+
+
+def _package_version() -> str:
+    try:
+        return pkg_version("scout-cli")
+    except PackageNotFoundError:
+        return "0.7.0"
+
+
+def _version_callback(value: bool) -> None:
+    """Eager --version: print and exit before Typer requires a subcommand."""
+    if not value:
+        return
+    ver = _package_version()
+    # Respect --json if already hoisted ahead of --version by ScoutTyper.
+    if "--json" in sys.argv:
+        set_json_mode(True)
+        emit(
+            ok(
+                {"name": "scout-cli", "version": ver, "module": "bigbang"},
+                command="scout --version",
+                example="scout --json planes thesis",
+            ),
+            command="scout --version",
+        )
+    else:
+        typer.echo(f"scout-cli {ver}")
+    raise typer.Exit(0)
+
 
 # Detect which invocation name was used for nicer help
 _invoked = Path(sys.argv[0]).name if sys.argv else "scout"
@@ -71,6 +102,13 @@ console = Console()
 def main(
     json: bool = typer.Option(False, "--json", help="Output structured JSON for agents"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose logs"),
+    version: bool = typer.Option(
+        False,
+        "--version",
+        help="Show package version and exit",
+        is_eager=True,
+        callback=_version_callback,
+    ),
 ):
     """Scout root. Prefer flags over prompts; use --json for machine output."""
     set_json_mode(json)

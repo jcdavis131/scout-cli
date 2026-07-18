@@ -36,11 +36,15 @@ def test_policy_manifests_exist():
         assert (base / p / "manifest.yaml").exists(), f"{p} manifest missing"
 
 def test_json_contract():
-    import subprocess, json
-    r = subprocess.run(["python3", "-m", "bigbang.cli", "--json", "tools", "list"], capture_output=True, text=True)
+    import json
+
+    from tests._cli import run_cli
+
+    r = run_cli(["--json", "tools", "list"])
     assert r.returncode == 0
     data = json.loads(r.stdout)
-    assert "tools" in data
+    assert data["ok"] is True
+    assert "tools" in data["data"]
 
 # --- Write plugin tests — authentic generators goal ---
 
@@ -78,8 +82,14 @@ def test_write_generate_humanlike():
     assert res["ai_score"] < 15
 
 def test_write_cli_json():
-    import subprocess, json
-    r = subprocess.run(["python3", "-m", "bigbang.cli", "--json", "write", "scan", "--text", "Hello world this is a simple note from Austin."], capture_output=True, text=True, timeout=8)
+    import json
+
+    from tests._cli import run_cli
+
+    r = run_cli(
+        ["--json", "write", "scan", "--text", "Hello world this is a simple note from Austin."],
+        timeout=8,
+    )
     assert r.returncode == 0
     data = json.loads(r.stdout)
     assert "result" in data

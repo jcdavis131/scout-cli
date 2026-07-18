@@ -68,10 +68,10 @@ Dottie-claw / Cursor / Claude
 
 ### Wave F1 — Core hardening
 
-- [ ] Migrate high-traffic plugins (`herd`, `secrets`, `tools`, `system`) to `ok`/`err` envelope
-- [ ] Finish cli-for-agents Examples/dry-run on `mcp`, `tasks`, `rtx`, `auth logout`
-- [ ] Wire fs/secret `enforce_or_raise` at write sites
-- [ ] Root `--version` from package metadata
+- [x] Migrate high-traffic plugins (`herd`, `secrets`, `tools`, `system`) to `ok`/`err` envelope
+- [x] Finish cli-for-agents Examples/dry-run on `mcp`, `tasks`, `rtx`, `auth logout`
+- [x] Wire fs/secret `enforce_or_raise` at write sites
+- [x] Root `--version` from package metadata
 
 ### Wave F2 — Orchestration depth (Herdr-steal, not Herdr-clone)
 

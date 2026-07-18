@@ -16,6 +16,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 
+from bigbang.core.policy import enforce_or_raise, load_manifest
+
 HERD_DIR = Path.home() / ".local" / "share" / "bigbang" / "herd"
 HERD_FILE = HERD_DIR / "sessions.json"
 LOG_DIR = HERD_DIR / "logs"
@@ -48,6 +50,8 @@ def _load() -> Dict[str, Any]:
 
 
 def _save(data: Dict[str, Any]) -> None:
+    manifest = load_manifest(Path(__file__).resolve().parent)
+    enforce_or_raise(manifest, "fs_write", str(HERD_FILE))
     _ensure_dirs()
     tmp = HERD_FILE.with_suffix(".tmp")
     tmp.write_text(json.dumps(data, indent=2, default=str), encoding="utf-8")
@@ -128,10 +132,17 @@ def refresh_session(sess: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _reap_exit_code(pid: int) -> Optional[int]:
-    """Best-effort exit code; usually None for unreaped foreign PIDs."""
+    """Best-effort exit code; usually None for unreaped foreign PIDs.
+
+    `os.waitpid` / `WNOHANG` are POSIX-only — on Windows we skip reaping and
+    let `_pid_alive` + log heuristics drive status.
+    """
+    wnohang = getattr(os, "WNOHANG", None)
+    if wnohang is None or not hasattr(os, "waitpid"):
+        return None
     try:
         # Non-blocking wait only works for our children.
-        finished_pid, status = os.waitpid(pid, os.WNOHANG)
+        finished_pid, status = os.waitpid(pid, wnohang)
         if finished_pid == pid:
             if os.WIFEXITED(status):
                 return int(os.WEXITSTATUS(status))

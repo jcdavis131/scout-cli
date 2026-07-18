@@ -1,10 +1,14 @@
 name: system
-version: 0.4.0
+version: 0.7.0
 description: System health, audit, policy, scaffold
 capabilities:
   network:
     enabled: true
-    domains: ["localhost"]
+    domains: ["localhost", "127.0.0.1"]
   filesystem:
     write: true
-    paths: ["~/workspace/bigbang-cli/"]
+    paths:
+      - "~/.local/share/bigbang/"
+      - "bigbang/plugins/"
+  secrets:
+    allow: []

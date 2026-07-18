@@ -6,14 +6,31 @@ from pathlib import Path
 import typer
 
 from bigbang.core.audit import tail_events
+from bigbang.core.cli_ux import examples_epilog, fail_agent
+from bigbang.core.contract import err, make_plugin_app, ok
 from bigbang.core.output import emit
 from bigbang.core.plugin_loader import get_all_manifests
+from bigbang.core.policy import enforce_or_raise, load_manifest
 
-app = typer.Typer(name="system", help="🖥️ System — doctor, audit, policy, scaffold", no_args_is_help=True)
+app = make_plugin_app(
+    "system",
+    "🖥️ System — doctor, audit, policy, scaffold",
+    examples=[
+        "scout --json system doctor",
+        "scout system audit --n 20",
+        "scout system policy",
+        "scout system scaffold mytool",
+    ],
+)
+
+
+def _manifest():
+    return load_manifest(Path(__file__).resolve().parent)
+
 
 def run_doctor():
-    from pathlib import Path
     import httpx
+
     checks = []
     checks.append({"check": "python", "status": platform.python_version(), "ok": True})
     checks.append({"check": "git", "status": shutil.which("git") or "missing", "ok": bool(shutil.which("git"))})
@@ -44,53 +61,120 @@ def run_doctor():
     checks.append(_file_check("vault", share / "secrets.json", require_mode_0600=True))
     checks.append(_file_check("audit_log", share / "audit.jsonl"))
     checks.append(_file_check("tool_registry", share / "registry.json"))
-    emit({"message": "doctor complete", "checks": checks, "security": "vault 0600, policy caps, audit jsonl"}, command="system doctor")
+    emit(
+        ok(
+            {
+                "message": "doctor complete",
+                "checks": checks,
+                "security": "vault 0600, policy caps, audit jsonl",
+            },
+            command="system doctor",
+            example="scout system audit --n 20",
+            discover="scout system policy",
+        ),
+        command="system doctor",
+    )
 
-@app.command("doctor")
+
+@app.command(
+    "doctor",
+    epilog=examples_epilog(["scout --json system doctor", "scout doctor"]),
+)
 def doctor():
     run_doctor()
 
-@app.command("audit")
+
+@app.command(
+    "audit",
+    epilog=examples_epilog(["scout --json system audit --n 20"]),
+)
 def audit_cmd(n: int = typer.Option(20, help="last n events")):
     events = tail_events(n)
-    emit({"audit_tail": events, "count": len(events), "file": "~/.local/share/bigbang/audit.jsonl"}, command="system audit")
+    emit(
+        ok(
+            {
+                "audit_tail": events,
+                "count": len(events),
+                "file": "~/.local/share/bigbang/audit.jsonl",
+            },
+            command="system audit",
+            example="scout system policy",
+        ),
+        command="system audit",
+    )
 
-@app.command("policy")
+
+@app.command(
+    "policy",
+    epilog=examples_epilog(["scout --json system policy"]),
+)
 def policy_cmd():
     manifests = get_all_manifests()
-    emit({"policies": manifests, "note": "each plugin/tool declares capabilities.network, filesystem, secrets — default deny"}, command="system policy")
+    emit(
+        ok(
+            {
+                "policies": manifests,
+                "note": "each plugin/tool declares capabilities.network, filesystem, secrets — default deny",
+            },
+            command="system policy",
+            example="scout system scaffold mytool",
+        ),
+        command="system policy",
+    )
 
-@app.command("scaffold")
+
+@app.command(
+    "scaffold",
+    epilog=examples_epilog(
+        [
+            "scout system scaffold mytool",
+            "scout --json system scaffold mytool",
+        ]
+    ),
+)
 def scaffold_plugin(
     name: str = typer.Argument(..., help="new plugin name"),
     with_manifest: bool = typer.Option(True, help="create manifest.yaml with caps"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="preview paths without writing"),
 ):
     """Scaffold a foundation-shaped plugin (Examples + contract emit + manifest)."""
     if not re.fullmatch(r"[a-z][a-z0-9_]{0,31}", name):
         emit(
-            {
-                "ok": False,
-                "error": "plugin name must be snake_case starting with a letter",
-                "example": "scout system scaffold mytool",
-            },
+            err(
+                "plugin name must be snake_case starting with a letter",
+                command="system scaffold",
+                example="scout system scaffold mytool",
+            ),
             command="system scaffold",
         )
         raise typer.Exit(1)
     base = Path(__file__).parent
     target = base.parent / name
-    target.mkdir(parents=True, exist_ok=True)
     cli_file = target / "cli.py"
-    (target / "__init__.py").touch(exist_ok=True)
-    if cli_file.exists():
+    if dry_run:
         emit(
-            {
-                "ok": False,
-                "warning": f"exists: {cli_file}",
-                "example": f"scout --json {name} hello",
-            },
+            ok(
+                {
+                    "would_create": str(cli_file),
+                    "manifest": with_manifest,
+                    "dry_run": True,
+                },
+                command="system scaffold",
+                example=f"scout system scaffold {name}",
+            ),
             command="system scaffold",
         )
         return
+    enforce_or_raise(_manifest(), "fs_write", str(cli_file))
+    target.mkdir(parents=True, exist_ok=True)
+    (target / "__init__.py").touch(exist_ok=True)
+    if cli_file.exists():
+        fail_agent(
+            f"exists: {cli_file}",
+            command="system scaffold",
+            example=f"scout --json {name} hello",
+            discover="scout system policy",
+        )
     cli_file.write_text(
         f'''"""{name} plugin — foundation-shaped, capability-declared."""
 from pathlib import Path
@@ -149,16 +233,19 @@ capabilities:
 """
         )
     emit(
-        {
-            "ok": True,
-            "created": str(cli_file),
-            "manifest": str(target / "manifest.yaml") if with_manifest else "skipped",
-            "example": f"scout --json {name} hello",
-            "next": f"scout --json {name} hello",
-            "teach": "scout skill show scout",
-        },
+        ok(
+            {
+                "created": str(cli_file),
+                "manifest": str(target / "manifest.yaml") if with_manifest else "skipped",
+                "next": f"scout --json {name} hello",
+                "teach": "scout skill show scout",
+            },
+            command="system scaffold",
+            example=f"scout --json {name} hello",
+        ),
         command="system scaffold",
     )
+
 
 def register(root):
     root.add_typer(app, name="system")

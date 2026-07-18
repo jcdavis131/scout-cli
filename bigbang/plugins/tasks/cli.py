@@ -23,13 +23,27 @@ import subprocess
 import shlex
 from typing import Optional, List
 from pathlib import Path
-from bigbang.core.output import emit
+from bigbang.core.cli_ux import examples_epilog, fail_agent, is_interactive
 from bigbang.core.http_utils import sanitize_no_proxy_env
+from bigbang.core.output import emit
 
 # Ensure proxy env sanitized (Hatch has IPv6 brackets that break httpx elsewhere, but we use subprocess)
 sanitize_no_proxy_env()
 
-app = typer.Typer(name="tasks", help="✅ Google Tasks — wired into BigBang, lists ↔ bb agent", no_args_is_help=True)
+app = typer.Typer(
+    name="tasks",
+    help="✅ Google Tasks — wired into Scout, lists ↔ agent bus",
+    no_args_is_help=True,
+    epilog=examples_epilog(
+        [
+            "scout --json tasks status",
+            "scout tasks list --tasklist @default",
+            'scout tasks add "Ship F1 envelope"',
+            "scout tasks delete TASK_ID --force",
+            "scout tasks delete TASK_ID --dry-run",
+        ]
+    ),
+)
 
 def _run_gws(args: List[str], json_input: Optional[dict] = None) -> dict:
     """Run hatch_gws_cli tasks ... and return parsed json or raw."""
@@ -155,14 +169,41 @@ def uncomplete_task(
     res = _run_gws(["tasks", "patch", "--params", json.dumps({"tasklist": tasklist, "task": task_id})], json_input=body)
     emit({"uncompleted": res, "task_id": task_id, "tasklist": tasklist}, command="tasks uncomplete")
 
-@app.command("delete")
+@app.command(
+    "delete",
+    epilog=examples_epilog(
+        [
+            "scout tasks delete TASK_ID --force",
+            "scout tasks delete TASK_ID --dry-run",
+            "scout tasks delete TASK_ID --tasklist @default --force",
+        ]
+    ),
+)
 def delete_task(
     task_id: str = typer.Argument(..., help="task id"),
     tasklist: str = typer.Option("@default", "--tasklist", help="tasklist id"),
     force: bool = typer.Option(False, "--force", "-f", help="skip confirmation"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="preview only"),
 ):
-    if not force:
+    if dry_run:
+        emit(
+            {
+                "would_delete": task_id,
+                "tasklist": tasklist,
+                "dry_run": True,
+                "example": f"scout tasks delete {task_id} --force",
+            },
+            command="tasks delete",
+        )
+        return
+    if not force and is_interactive():
         typer.confirm(f"Delete task {task_id} in {tasklist}?", abort=True)
+    elif not force:
+        fail_agent(
+            "Refusing to delete without --force in non-interactive mode",
+            command="tasks delete",
+            example=f"scout tasks delete {task_id} --force",
+        )
     res = _run_gws(["tasks", "delete", "--params", json.dumps({"tasklist": tasklist, "task": task_id})])
     emit({"deleted": task_id, "tasklist": tasklist, "result": res}, command="tasks delete")
 

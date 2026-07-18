@@ -25,7 +25,7 @@ Build Scout as a **clean, extensible foundational orchestration tool** (Herdr-in
 
 ## Next waves
 
-- F1: migrate herd/secrets/tools to `ok` envelope; policy enforce at writes
+- F1: migrate herd/secrets/tools to `ok` envelope; policy enforce at writes — **done**
 - F2: herd send/watch; import Cursor cloud agents
 - F3: plugin marketplace (`scout-plugin` topic)
 - F4: Dottie heartbeat + RFT loop docs

@@ -1,3 +1,4 @@
+from pathlib import Path
 from typing import Optional
 
 import typer
@@ -8,23 +9,26 @@ from bigbang.core.cli_ux import (
     is_interactive,
     require_secret_value,
 )
+from bigbang.core.contract import make_plugin_app, ok
 from bigbang.core.output import emit
+from bigbang.core.policy import enforce_or_raise, load_manifest
 from bigbang.core.security import delete_secret, get_secret, list_secrets, set_secret
 
-app = typer.Typer(
-    name="secrets",
-    help="🔐 Vault — secrets never in repo, keyring + OS perms + audit",
-    no_args_is_help=True,
-    epilog=examples_epilog(
-        [
-            "scout secrets set GITHUB_TOKEN --value ghp_xxx",
-            "printf '%s' \"$TOKEN\" | scout secrets set GITHUB_TOKEN --stdin",
-            "scout --json secrets list",
-            "scout secrets get GITHUB_TOKEN",
-            "scout secrets rm OLD_KEY --force",
-        ]
-    ),
+app = make_plugin_app(
+    "secrets",
+    "🔐 Vault — secrets never in repo, keyring + OS perms + audit",
+    examples=[
+        "scout secrets set GITHUB_TOKEN --value ghp_xxx",
+        "printf '%s' \"$TOKEN\" | scout secrets set GITHUB_TOKEN --stdin",
+        "scout --json secrets list",
+        "scout secrets get GITHUB_TOKEN",
+        "scout secrets rm OLD_KEY --force",
+    ],
 )
+
+
+def _manifest():
+    return load_manifest(Path(__file__).resolve().parent)
 
 
 @app.command(
@@ -57,13 +61,21 @@ def set_cmd(
         command="secrets set",
         example=f"scout secrets set {key} --value <secret>   # or: … | scout secrets set {key} --stdin",
     )
+    mf = _manifest()
+    enforce_or_raise(mf, "secret", key)
+    enforce_or_raise(mf, "fs_write", str(Path.home() / ".local" / "share" / "bigbang" / "secrets.json"))
     set_secret(key, resolved)
     emit(
-        {
-            "message": f"secret {key} vaulted",
-            "stored_in": "~/.local/share/bigbang/secrets.json (0600)",
-            "audit": "logged without value",
-        },
+        ok(
+            {
+                "message": f"secret {key} vaulted",
+                "stored_in": "~/.local/share/bigbang/secrets.json (0600)",
+                "audit": "logged without value",
+            },
+            command="secrets set",
+            example=f"scout --json secrets get {key}",
+            discover="scout secrets list",
+        ),
         command="secrets set",
     )
 
@@ -89,7 +101,11 @@ def get_cmd(key: str = typer.Argument(..., help="secret name")):
         )
     masked = v[:4] + "****" if len(v) > 8 else "****"
     emit(
-        {"key": key, "value": v, "masked": masked, "source": "vault/keyring/env"},
+        ok(
+            {"key": key, "value": v, "masked": masked, "source": "vault/keyring/env"},
+            command="secrets get",
+            example="scout --json secrets list",
+        ),
         command="secrets get",
     )
 
@@ -102,7 +118,11 @@ def list_cmd():
     """List secret keys only (values never listed)."""
     keys = list_secrets()
     emit(
-        {"secrets": keys, "count": len(keys), "note": "values never listed"},
+        ok(
+            {"secrets": keys, "count": len(keys), "note": "values never listed"},
+            command="secrets list",
+            example="scout secrets get <KEY>",
+        ),
         command="secrets list",
     )
 
@@ -121,11 +141,15 @@ def rm_cmd(
     force: bool = typer.Option(False, "--force", "-f", help="skip confirmation"),
     dry_run: bool = typer.Option(False, "--dry-run", help="show what would be deleted"),
 ):
-    """Delete a vaulted secret. Idempotent: missing key → ok=false, exit 0 with --force."""
+    """Delete a vaulted secret. Idempotent: missing key → removed=false, exit 0 with --force."""
     exists = get_secret(key) is not None
     if dry_run:
         emit(
-            {"would_delete": key, "exists": exists, "dry_run": True},
+            ok(
+                {"would_delete": key, "exists": exists, "dry_run": True},
+                command="secrets rm",
+                example=f"scout secrets rm {key} --force",
+            ),
             command="secrets rm",
         )
         return
@@ -137,8 +161,15 @@ def rm_cmd(
             command="secrets rm",
             example=f"scout secrets rm {key} --force",
         )
-    ok = delete_secret(key) if exists else False
-    emit({"deleted": key, "ok": ok, "existed": exists}, command="secrets rm")
+    removed = delete_secret(key) if exists else False
+    emit(
+        ok(
+            {"deleted": key, "removed": removed, "existed": exists},
+            command="secrets rm",
+            example="scout --json secrets list",
+        ),
+        command="secrets rm",
+    )
 
 
 def register(root):

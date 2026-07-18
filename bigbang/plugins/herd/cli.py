@@ -5,6 +5,7 @@ Scout owns tools/MCP/Ava/policy. Herdr owns real PTY panes.
 """
 from __future__ import annotations
 
+import os
 import shlex
 from pathlib import Path
 from typing import List, Optional
@@ -12,27 +13,25 @@ from typing import List, Optional
 import typer
 
 from bigbang.core.cli_ux import examples_epilog, fail_agent
+from bigbang.core.contract import make_plugin_app, ok
 from bigbang.core.output import emit
 from bigbang.plugins.herd import store
 
-app = typer.Typer(
-    name="herd",
-    help=(
+app = make_plugin_app(
+    "herd",
+    (
         "🐑 Herd — agent session control surface (Herdr-inspired). "
         "Track working/blocked/done; wait + read logs. Not a PTY multiplexer."
     ),
-    no_args_is_help=True,
-    epilog=examples_epilog(
-        [
-            "scout herd status",
-            "scout herd create --label api --cwd ~/project",
-            'scout herd start api --cmd "pytest -q"',
-            "scout --json herd wait api --status done --timeout 120",
-            "scout herd read api --lines 40",
-            "scout herd report api --status blocked --note need secrets",
-            "scout herd herdr   # detect Herdr binary / pairing notes",
-        ]
-    ),
+    examples=[
+        "scout herd status",
+        "scout herd create --label api --cwd ~/project",
+        'scout herd start api --cmd "pytest -q"',
+        "scout --json herd wait api --status done --timeout 120",
+        "scout herd read api --lines 40",
+        "scout herd report api --status blocked --note need secrets",
+        "scout herd herdr   # detect Herdr binary / pairing notes",
+    ],
 )
 
 
@@ -51,7 +50,15 @@ def status_cmd():
     payload["disclaimer"] = (
         "Solo personal project, no connection to employer, built with public/free-tier only"
     )
-    emit(payload, command="herd status")
+    emit(
+        ok(
+            payload,
+            command="herd status",
+            example="scout herd create --label api",
+            discover="scout herd list",
+        ),
+        command="herd status",
+    )
 
 
 @app.command(
@@ -74,11 +81,11 @@ def list_cmd(
             )
         sessions = [s for s in sessions if s.get("status") == status]
     emit(
-        {
-            "sessions": sessions,
-            "count": len(sessions),
-            "example": "scout herd get <id-or-label>",
-        },
+        ok(
+            {"sessions": sessions, "count": len(sessions)},
+            command="herd list",
+            example="scout herd get <id-or-label>",
+        ),
         command="herd list",
     )
 
@@ -100,11 +107,14 @@ def create_cmd(
     """Create an idle session slot (Herdr workspace-create analogue)."""
     sess = store.create_session(label=label, cwd=cwd, note=note)
     emit(
-        {
-            "created": sess,
-            "example": f'scout herd start {sess["label"]} --cmd "pytest -q"',
-            "next": f"scout herd start {sess['id']} --cmd '<command>'",
-        },
+        ok(
+            {
+                "created": sess,
+                "next": f"scout herd start {sess['id']} --cmd '<command>'",
+            },
+            command="herd create",
+            example=f'scout herd start {sess["label"]} --cmd "pytest -q"',
+        ),
         command="herd create",
     )
 
@@ -130,7 +140,10 @@ def get_cmd(key: str = typer.Argument(..., help="session id or label")):
             example=f"scout herd get {sess['matches'][0]}",
             discover="scout herd list",
         )
-    emit({"session": sess}, command="herd get")
+    emit(
+        ok({"session": sess}, command="herd get", example=f"scout herd read {key} --lines 40"),
+        command="herd get",
+    )
 
 
 @app.command(
@@ -160,7 +173,8 @@ def start_cmd(
     """Start a detached process in a herd session (logs to ~/.local/share/bigbang/herd/logs/)."""
     parts: List[str] = list(ctx.args) if ctx.args else []
     if cmd:
-        parts = shlex.split(cmd)
+        # posix=False on Windows so backslashes in interpreter paths survive.
+        parts = shlex.split(cmd, posix=(os.name != "nt"))
     if not parts:
         fail_agent(
             "No command provided",
@@ -199,11 +213,14 @@ def start_cmd(
         )
         return
     emit(
-        {
-            "started": sess,
-            "example": f"scout --json herd wait {sess['label']} --status done --timeout 120",
-            "read": f"scout herd read {sess['id']} --lines 40",
-        },
+        ok(
+            {
+                "started": sess,
+                "read": f"scout herd read {sess['id']} --lines 40",
+            },
+            command="herd start",
+            example=f"scout --json herd wait {sess['label']} --status done --timeout 120",
+        ),
         command="herd start",
     )
 
@@ -235,7 +252,10 @@ def report_cmd(
             example=f"scout herd report {key} --status blocked --note '...'",
         )
         return
-    emit({"reported": sess}, command="herd report")
+    emit(
+        ok({"reported": sess}, command="herd report", example=f"scout herd wait {key} --status done"),
+        command="herd report",
+    )
 
 
 @app.command(
@@ -264,7 +284,10 @@ def wait_cmd(
             example=f"scout herd wait {key} --status done --timeout 120",
         )
         return
-    emit(result, command="herd wait")
+    emit(
+        ok(result, command="herd wait", example=f"scout herd read {key} --lines 40"),
+        command="herd wait",
+    )
     if not result.get("matched"):
         raise typer.Exit(code=2)
 
@@ -285,7 +308,10 @@ def read_cmd(
     except Exception as e:
         _emit_err(e, command="herd read", example=f"scout herd read {key} --lines 40")
         return
-    emit(result, command="herd read")
+    emit(
+        ok(result, command="herd read", example=f"scout herd report {key} --status done"),
+        command="herd read",
+    )
 
 
 @app.command(
@@ -321,12 +347,16 @@ def close_cmd(
         )
     if dry_run:
         emit(
-            {
-                "would_close": sess["id"],
-                "alive": sess.get("alive"),
-                "kill": kill,
-                "dry_run": True,
-            },
+            ok(
+                {
+                    "would_close": sess["id"],
+                    "alive": sess.get("alive"),
+                    "kill": kill,
+                    "dry_run": True,
+                },
+                command="herd close",
+                example=f"scout herd close {sess['id']} --force",
+            ),
             command="herd close",
         )
         return
@@ -345,7 +375,10 @@ def close_cmd(
             example=f"scout herd close {sess['id']} --kill --force",
         )
         return
-    emit(result, command="herd close")
+    emit(
+        ok(result, command="herd close", example="scout --json herd status"),
+        command="herd close",
+    )
 
 
 @app.command(
@@ -374,7 +407,15 @@ def herdr_cmd():
             Path(__file__).resolve().parents[2] / "skills" / "scout-herd.md"
         ),
     }
-    emit(info, command="herd herdr")
+    emit(
+        ok(
+            info,
+            command="herd herdr",
+            example="scout herd create --label api --cwd ~/project",
+            discover="scout skill show scout-herd",
+        ),
+        command="herd herdr",
+    )
 
 
 def register(root):

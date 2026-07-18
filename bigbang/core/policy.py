@@ -134,7 +134,13 @@ def check_permission(manifest: Dict, action: str, resource: str) -> Tuple[bool, 
             return False, "filesystem write disabled — add manifest capabilities.filesystem.write=true"
     if action == "secret":
         allowed = caps.get("secrets", {}).get("allow", [])
-        if allowed and resource not in allowed:
+        # "*" means allow any secret name (vault plugins); empty allowlist = deny.
+        if not allowed:
+            return False, (
+                f"secret allowlist empty for {manifest.get('name', 'tool')} "
+                "— default-deny; list keys or '*' in manifest capabilities.secrets.allow"
+            )
+        if "*" not in allowed and resource not in allowed:
             return False, f"secret {resource} not in allowlist {allowed}"
     return True, "ok"
 

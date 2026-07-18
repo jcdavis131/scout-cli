@@ -6,6 +6,7 @@ MCP surface stays as capable (and as policy/audit constrained) as the CLI.
 """
 from __future__ import annotations
 
+import os
 import shlex
 import subprocess
 import sys
@@ -20,10 +21,16 @@ _SUBPROCESS_TIMEOUT = 120
 def _dispatch(plugin: str, args: str) -> str:
     argv = [sys.executable, "-m", "bigbang.cli", "--json", plugin]
     if args.strip():
-        argv += shlex.split(args)
+        argv += shlex.split(args, posix=(os.name != "nt"))
     try:
         proc = subprocess.run(
-            argv, capture_output=True, text=True, timeout=_SUBPROCESS_TIMEOUT
+            argv,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=_SUBPROCESS_TIMEOUT,
+            env={**os.environ, "PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1"},
         )
     except subprocess.TimeoutExpired:
         return (
