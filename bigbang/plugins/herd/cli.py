@@ -13,7 +13,21 @@ import typer
 
 from bigbang.core.cli_ux import examples_epilog, fail_agent
 from bigbang.core.output import emit
-from bigbang.plugins.herd import store
+from bigbang.plugins.herd import events as herd_events
+from bigbang.plugins.herd import herdr_bridge, spawn_guard, store
+
+_PLUGIN_DIR = Path(__file__).resolve().parent
+
+
+def _enforce_ledger_write() -> None:
+    """Trust: enforce this plugin's declared fs_write capability before touching
+    the ledger (FOUNDATION Wave F1 — 'wire enforce_or_raise at write sites').
+    Passes for the shipped manifest; a locked-down manifest would block."""
+    try:
+        from bigbang.core.policy import enforce_or_raise, load_manifest
+        enforce_or_raise(load_manifest(_PLUGIN_DIR), "fs_write", str(store.HERD_FILE))
+    except ImportError:
+        pass  # policy module optional; degrade open rather than break the CLI
 
 app = typer.Typer(
     name="herd",
@@ -156,6 +170,9 @@ def start_cmd(
         None, "--label", "-l", help="create+start with this label when key omitted"
     ),
     cwd: Optional[str] = typer.Option(None, "--cwd", help="working directory override"),
+    allow_risky: bool = typer.Option(
+        False, "--allow-risky", help="bypass the destructive-command trust gate"
+    ),
 ):
     """Start a detached process in a herd session (logs to ~/.local/share/bigbang/herd/logs/)."""
     parts: List[str] = list(ctx.args) if ctx.args else []
@@ -167,6 +184,19 @@ def start_cmd(
             command="herd start",
             example='scout herd start api --cmd "pytest -q"',
         )
+
+    # Trust gate (FOUNDATION F1): refuse obviously-destructive argv unless the
+    # caller explicitly opts in — and record the refusal as telemetry.
+    risky, reason = spawn_guard.assess(parts)
+    if risky and not allow_risky:
+        herd_events.record("gate_denied", label=label or key, status="denied",
+                           fields={"reason": reason, "cmd": parts})
+        fail_agent(
+            f"Refused destructive command ({reason}). Re-run with --allow-risky if intended.",
+            command="herd start",
+            example='scout herd start api --cmd "pytest -q"',
+        )
+    _enforce_ledger_write()
 
     target = key
     if not target:
@@ -198,6 +228,8 @@ def start_cmd(
             example='scout herd start api --cmd "pytest -q"',
         )
         return
+    herd_events.record("session_started", session_id=sess["id"], label=sess.get("label"),
+                       status=sess.get("status"), fields={"cmd": sess.get("cmd")})
     emit(
         {
             "started": sess,
@@ -235,6 +267,8 @@ def report_cmd(
             example=f"scout herd report {key} --status blocked --note '...'",
         )
         return
+    herd_events.record("status_reported", session_id=sess["id"], label=sess.get("label"),
+                       status=status, fields={"note": note} if note else None)
     emit({"reported": sess}, command="herd report")
 
 
@@ -358,23 +392,92 @@ def close_cmd(
     ),
 )
 def herdr_cmd():
-    """Detect Herdr and explain how to pair it with Scout herd."""
-    info = store.herdr_available()
-    info["pairing"] = {
-        "herdr": "PTY panes, mouse layout, remote attach, agent sidebar",
-        "scout_herd": "JSON session ledger, wait/read/report, tools/MCP/Ava routing",
-        "suggested_flow": [
-            "herdr   # attach multiplexer",
-            "scout herd create --label api --cwd ~/project",
-            'scout herd start api --cmd "claude"   # or run agent inside herdr pane',
-            "scout --json herd wait api --status done",
-            "scout agent run \"summarize herd status\" --execute",
-        ],
-        "agent_skill": str(
-            Path(__file__).resolve().parents[2] / "skills" / "scout-herd.md"
-        ),
-    }
+    """Detect Herdr, show the LIVE bridge status, and explain the pairing."""
+    info = herdr_bridge.bridge_status()
+    info["pairing"] = herdr_bridge.pairing_notes()
+    info["pairing"]["agent_skill"] = str(_PLUGIN_DIR.parents[1] / "skills" / "scout-herd.md")
     emit(info, command="herd herdr")
+
+
+@app.command(
+    "bridge",
+    epilog=examples_epilog([
+        "scout --json herd bridge          # live Herdr pane/agent state",
+        "scout --json herd bridge --schema # herdr api schema (installed binary)",
+    ]),
+)
+def bridge_cmd(
+    schema: bool = typer.Option(False, "--schema", help="dump herdr api schema --json"),
+):
+    """Live view of Herdr agent panes via the real binary (offline-safe)."""
+    if schema:
+        emit(herdr_bridge.schema(), command="herd bridge")
+        return
+    payload = herdr_bridge.list_agents()
+    payload["status"] = herdr_bridge.bridge_status()
+    emit(payload, command="herd bridge")
+
+
+@app.command(
+    "attach",
+    epilog=examples_epilog([
+        "scout herd attach api --pane w1:p2",
+        "scout --json herd attach api --pane 1-1",
+    ]),
+)
+def attach_cmd(
+    key: str = typer.Argument(..., help="session id or label"),
+    pane: str = typer.Option(..., "--pane", help="Herdr pane id (parse it from herd bridge JSON)"),
+):
+    """Map a Scout herd session to a real Herdr pane id (sets herdr_pane)."""
+    try:
+        _enforce_ledger_write()
+        sess = store.attach_pane(key, pane)
+    except Exception as e:
+        _emit_err(e, command="herd attach", example="scout herd attach api --pane w1:p2")
+        return
+    herd_events.record("pane_attached", session_id=sess["id"], label=sess.get("label"),
+                       status=sess.get("status"), fields={"herdr_pane": pane})
+    emit({"attached": sess, "herdr_pane": pane}, command="herd attach")
+
+
+@app.command(
+    "events",
+    epilog=examples_epilog([
+        "scout --json herd events           # rolled-up session telemetry",
+        "scout --json herd events --tail 20 # raw recent events",
+    ]),
+)
+def events_cmd(
+    tail: int = typer.Option(0, "--tail", "-t", help="raw last-N events instead of the rollup"),
+):
+    """Per-session telemetry stream (local, never phoned home)."""
+    if tail:
+        emit({"events": herd_events.tail(tail)}, command="herd events")
+    else:
+        emit(herd_events.rollup(), command="herd events")
+
+
+@app.command(
+    "export",
+    epilog=examples_epilog([
+        "scout herd export --sink ~/reports          # opt-in local export",
+        "scout herd export --sink ~/ava-agi-factory-v6-4/reports  # -> arxiviq pipeline",
+    ]),
+)
+def export_cmd(
+    sink: str = typer.Option(..., "--sink", help="directory to write herd_status.json into (you choose)"),
+):
+    """Opt-in LOCAL telemetry export — YOU name the sink (never phones home).
+    Point it at the factory reports/ dir to ride its git-push onto arxiviq."""
+    try:
+        out = herd_events.export(Path(sink))
+    except Exception as e:
+        _emit_err(e, command="herd export", example="scout herd export --sink ~/reports")
+        return
+    emit({"exported": str(out), "sink": sink,
+          "note": "opt-in local export; you chose the sink (Trust boundary preserved)"},
+         command="herd export")
 
 
 def register(root):

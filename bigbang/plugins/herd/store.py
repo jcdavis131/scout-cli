@@ -305,6 +305,24 @@ def report_status(
     return sess
 
 
+def attach_pane(key: str, pane_id: str) -> Dict[str, Any]:
+    """Map a Scout herd session to a real Herdr pane id (populates the
+    previously-always-None ``herdr_pane`` field). Manual metadata only — Scout
+    records the mapping; Herdr still owns the pane."""
+    if not pane_id:
+        raise ValueError("pane_id required")
+    data = _load()
+    sess = get_session(key, refresh=False)
+    if not sess or sess.get("error"):
+        raise KeyError(f"session not found: {key}")
+    sess = refresh_session(dict(sess))
+    sess["herdr_pane"] = pane_id
+    sess["updated_at"] = _now()
+    data["sessions"][sess["id"]] = sess
+    _save(data)
+    return sess
+
+
 def read_log(key: str, *, lines: int = 40) -> Dict[str, Any]:
     sess = get_session(key, refresh=True)
     if not sess or sess.get("error"):

@@ -1,9 +1,12 @@
 name: herd
-version: 0.7.0
+version: 0.8.0
 description: >
   Herdr-inspired agent session control surface — list/wait/read/report
-  semantic status (idle|working|blocked|done). Not a PTY multiplexer;
-  pairs with Herdr for real panes.
+  semantic status (idle|working|blocked|done), plus a live Herdr bridge
+  (bridge/attach), a per-session telemetry stream (events), and opt-in
+  local export you choose the sink for. Not a PTY multiplexer; pairs with
+  Herdr for real panes. Trust: fs_write enforced at ledger writes,
+  destructive `start` commands gated (--allow-risky to bypass).
 capabilities:
   network:
     enabled: false

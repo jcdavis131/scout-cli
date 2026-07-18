@@ -329,12 +329,24 @@ def _heuristic_route(task: str) -> Dict[str, Any]:
             "blocked agent",
             "wait for agent",
             "session ledger",
+            "pane",
+            "attach",
+            "telemetry",
+            "export",
         ]
     ):
         if "wait" in q:
             cmd = "scout --json herd wait api --status done --timeout 120"
         elif "read" in q or "log" in q:
             cmd = "scout herd read api --lines 40"
+        elif "attach" in q or "pane" in q:
+            cmd = "scout herd attach api --pane w1:p2"
+        elif "bridge" in q or ("herdr" in q and ("state" in q or "live" in q)):
+            cmd = "scout --json herd bridge"
+        elif "export" in q:
+            cmd = "scout herd export --sink ~/reports"
+        elif "telemetry" in q or "events" in q:
+            cmd = "scout --json herd events"
         elif "start" in q or "run" in q:
             cmd = 'scout herd start --label api --cmd "pytest -q"'
         elif "herdr" in q:
