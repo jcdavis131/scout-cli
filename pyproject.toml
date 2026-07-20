@@ -1,9 +1,9 @@
 [project]
 name = "scout-cli"
-version = "0.7.0"
-description = "Scout CLI - personal control plane (ex-BigBang). Agent-native herd sessions + Ava brain + tools/MCP + authentic writing + RTX offload. HOME-only."
+version = "0.7.1"
+description = "Scout CLI 🐾 — personal control plane (ex-BigBang). Agent-native, security-first, Ava brain + authentic writing + lab MRR + RTX offload. HOME-only. Single CLI Doctrine v0.7.1."
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 license = {text = "MIT"}
 authors = [{name = "Cameron Davis", email = "jcdavis131@gmail.com"}]
 keywords = ["scout", "cli", "agent", "tools", "mcp", "personal", "automation", "kitty"]
@@ -21,14 +21,13 @@ dependencies = [
 
 [project.optional-dependencies]
 all = ["gspread", "supabase", "onnxruntime", "keyring", "cryptography", "mcp>=1.28.1"]
-dev = ["pytest>=8", "ruff>=0.3", "mypy>=1.8", "pytest-cov"]
+dev = ["pytest>=8", "ruff>=0.8", "pre-commit>=3.7", "mypy>=1.10", "pytest-cov"]
 security = ["keyring", "cryptography"]
-# Personal Graphify — install from local private clone: pip install -e ~/personal-graphify
-graphify = []
 
 [project.urls]
-Homepage = "https://github.com/jcdavis131/bigbang-cli"
-Issues = "https://github.com/jcdavis131/bigbang-cli/issues"
+Homepage = "https://github.com/jcdavis131/scout-cli"
+Repository = "https://github.com/jcdavis131/scout-cli"
+Issues = "https://github.com/jcdavis131/scout-cli/issues"
 
 [project.scripts]
 scout = "bigbang.cli:app"
@@ -38,22 +37,49 @@ dv = "bigbang.cli:app"
 kitty = "bigbang.cli:app"
 
 [build-system]
-requires = ["setuptools>=61", "wheel"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
-[tool.setuptools.packages.find]
-include = ["bigbang", "bigbang.*"]
-
-[tool.setuptools.package-data]
-bigbang = [
-  "skills/*.md",
-  "skills/*/SKILL.md",
-  "plugins/*/manifest.yaml",
-]
+[tool.hatch.build.targets.wheel]
+packages = ["bigbang"]
 
 [tool.ruff]
-line-length = 100
-target-version = "py310"
+target-version = "py311"
+line-length = 88
+exclude = ["graphify-out*", "docs/llm-wiki", ".venv", "__pycache__", "*.egg-info"]
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "B", "C4", "UP", "N", "S", "PTH", "TCH", "RUF"]
+ignore = [
+  "S101",
+  "S603",
+  "S607",
+  "S110",
+  "N803",
+  "E501",
+  "W505",
+  "RUF001",
+  "RUF005",
+  "S112",
+  "B008",
+]
+fixable = ["ALL"]
+unfixable = []
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.isort]
+known-first-party = ["bigbang", "scout_cli", "bigbang_cli"]
+
+[tool.ruff.lint.flake8-tidy-imports]
+ban-relative-imports = "parents"
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "auto"
+docstring-code-format = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

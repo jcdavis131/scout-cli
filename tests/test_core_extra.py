@@ -1,6 +1,6 @@
 """Extra coverage: security vault round-trip, auth pure helpers, tasks CRUD (stubbed)."""
+
 import json
-import subprocess
 
 import pytest
 
@@ -32,18 +32,21 @@ class TestAuthHelpers:
     def test_get_token_vault_key_priority(self, tmp_path, monkeypatch):
         monkeypatch.setattr(security, "VAULT_FILE", tmp_path / "secrets.json")
         from bigbang.plugins.auth import cli as auth_cli
+
         security.set_secret("GITHUB_TOKEN", "gh-vaulted")
         assert auth_cli.get_token("github") == "gh-vaulted"
 
     def test_get_token_env_fallback(self, tmp_path, monkeypatch):
         monkeypatch.setattr(security, "VAULT_FILE", tmp_path / "secrets.json")
         from bigbang.plugins.auth import cli as auth_cli
+
         monkeypatch.setenv("MYSVC_TOKEN", "env-tok")
         assert auth_cli.get_token("mysvc") == "env-tok"
 
     def test_get_token_missing_is_none(self, tmp_path, monkeypatch):
         monkeypatch.setattr(security, "VAULT_FILE", tmp_path / "secrets.json")
         from bigbang.plugins.auth import cli as auth_cli
+
         for var in ("NOSVC_TOKEN", "NOSVC_API_KEY", "NOSVC_PAT"):
             monkeypatch.delenv(var, raising=False)
         assert auth_cli.get_token("nosvc") is None
@@ -51,18 +54,21 @@ class TestAuthHelpers:
 
     def test_resolve_client_id_explicit_wins(self, monkeypatch):
         from bigbang.plugins.auth import cli as auth_cli
+
         cfg = auth_cli.SERVICE_CONFIGS["github"]
         assert auth_cli._resolve_client_id("github", cfg, explicit=" abc ") == "abc"
 
     def test_resolve_client_id_env(self, tmp_path, monkeypatch):
         monkeypatch.setattr(security, "VAULT_FILE", tmp_path / "secrets.json")
         from bigbang.plugins.auth import cli as auth_cli
+
         cfg = auth_cli.SERVICE_CONFIGS["github"]
         monkeypatch.setenv("GITHUB_CLIENT_ID", "cid-env")
         assert auth_cli._resolve_client_id("github", cfg) == "cid-env"
 
     def test_load_save_auth_roundtrip(self, tmp_path, monkeypatch):
         from bigbang.plugins.auth import cli as auth_cli
+
         monkeypatch.setattr(auth_cli, "REG", tmp_path / "auth.json")
         auth_cli._save_auth({"github": {"method": "token"}})
         assert auth_cli._load_auth() == {"github": {"method": "token"}}
@@ -73,8 +79,9 @@ class TestTasksCrudStubbed:
     @pytest.fixture()
     def gws_calls(self, monkeypatch, tmp_path):
         """Stub subprocess.run inside the tasks plugin; record hatch_gws_cli argv."""
-        from bigbang.plugins.tasks import cli as tasks_cli
         from bigbang.core import audit
+        from bigbang.plugins.tasks import cli as tasks_cli
+
         monkeypatch.setattr(audit, "AUDIT_FILE", tmp_path / "audit.jsonl")
         calls = []
 
@@ -100,6 +107,7 @@ class TestTasksCrudStubbed:
     def test_add_list_complete_delete(self, gws_calls, capsys):
         from bigbang.core.output import set_json_mode
         from bigbang.plugins.tasks import cli as tasks_cli
+
         set_json_mode(True)
 
         tasks_cli.add_task("Test task", notes="n", due=None, tasklist="@default")
@@ -107,8 +115,13 @@ class TestTasksCrudStubbed:
         assert out["created"]["id"] == "task-1"
         assert gws_calls[-1][:3] == ["hatch_gws_cli", "tasks", "tasks"]
 
-        tasks_cli.list_tasks(tasklist="@default", show_completed=False,
-                             max_results=10, due_min=None, due_max=None)
+        tasks_cli.list_tasks(
+            tasklist="@default",
+            show_completed=False,
+            max_results=10,
+            due_min=None,
+            due_max=None,
+        )
         out = self._out(capsys)
         assert out["count"] == 1
 
@@ -123,6 +136,7 @@ class TestTasksCrudStubbed:
     def test_export_writes_to_repo_docs(self, gws_calls, capsys, monkeypatch, tmp_path):
         from bigbang.core.output import set_json_mode
         from bigbang.plugins.tasks import cli as tasks_cli
+
         set_json_mode(True)
         # redirect repo root to tmp so the test never touches real docs/
         monkeypatch.setattr(tasks_cli, "_repo_root", lambda: tmp_path)

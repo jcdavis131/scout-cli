@@ -1,12 +1,11 @@
 """Agentability regression tests — cli-for-agents skill."""
+
 from __future__ import annotations
 
 import json
 import subprocess
 import time
 from pathlib import Path
-
-import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 CLI = ["python3", "-m", "bigbang.cli"]
@@ -93,14 +92,18 @@ def test_auth_set_token_stdin():
     r = _run(["--json", "auth", "set-token", svc, "--stdin"], input_text="tok_abc\n")
     assert r.returncode == 0, r.stderr + r.stdout
     data = json.loads(r.stdout)
-    assert data.get("service") == svc or data.get("status") == "ok" or "vault_key" in data
+    assert (
+        data.get("service") == svc or data.get("status") == "ok" or "vault_key" in data
+    )
     # logout cleanup if available
     _run(["auth", "logout", svc, "--delete-vault"])
 
 
 def test_tools_rm_requires_force():
     name = f"agent_tool_{int(time.time())}"
-    add = _run(["--json", "tools", "add", name, "--type", "cli", "--description", "tmp"])
+    add = _run(
+        ["--json", "tools", "add", name, "--type", "cli", "--description", "tmp"]
+    )
     assert add.returncode == 0, add.stderr
     denied = _run(["--json", "tools", "rm", name])
     assert denied.returncode == 1

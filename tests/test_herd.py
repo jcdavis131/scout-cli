@@ -1,4 +1,5 @@
 """Herd plugin — Herdr-inspired session control surface."""
+
 from __future__ import annotations
 
 import json
