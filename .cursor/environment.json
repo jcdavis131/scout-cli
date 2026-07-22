@@ -1,0 +1,14 @@
+{
+  "name": "scout-cli",
+  "install": "bash scripts/dev-env-setup.sh",
+  "repositoryDependencies": [
+    "github.com/jcdavis131/dottie"
+  ],
+  "terminals": [
+    {
+      "name": "scout-workspace",
+      "command": "source ~/.bashrc 2>/dev/null; cd \"${SCOUT_CLI_ROOT:-.}\" && (test -d .venv || uv venv --python 3.11 .venv); printf '\\n[ready] SCOUT_CLI_ROOT=%s\\n' \"${SCOUT_CLI_ROOT:-$(pwd)}\"",
+      "description": "Load scout-cli shell env and ensure a local venv exists."
+    }
+  ]
+}

@@ -1,6 +1,6 @@
 """Agentability regression tests — cli-for-agents skill."""
-
 from __future__ import annotations
+import sys
 
 import json
 import subprocess
@@ -8,7 +8,7 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-CLI = ["python3", "-m", "bigbang.cli"]
+CLI = [sys.executable, "-m", "bigbang.cli"]
 
 
 def _run(args, *, input_text=None, timeout=8, env=None):

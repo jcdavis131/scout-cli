@@ -1,3 +1,4 @@
+import sys
 def test_import():
     import bigbang.cli
 
@@ -69,7 +70,7 @@ def test_json_contract():
     import subprocess
 
     r = subprocess.run(
-        ["python3", "-m", "bigbang.cli", "--json", "tools", "list"],
+        [sys.executable, "-m", "bigbang.cli", "--json", "tools", "list"],
         capture_output=True,
         text=True,
     )
@@ -126,7 +127,7 @@ def test_write_cli_json():
 
     r = subprocess.run(
         [
-            "python3",
+            sys.executable,
             "-m",
             "bigbang.cli",
             "--json",
