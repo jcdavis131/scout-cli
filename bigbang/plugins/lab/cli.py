@@ -1,5 +1,6 @@
 # Solo personal project, no connection to employer, built with public/free-tier only
 import json
+import re as _re
 from datetime import datetime
 from pathlib import Path
 
@@ -86,8 +87,6 @@ TOP10_DEFAULT = [
         "pain": "No-show, no comeback tracking",
     },
 ]
-
-import re as _re
 
 _TOP10_ITEM_RE = _re.compile(r"^\s*(?:[-*]|\d+[.)])\s+(.+\S)\s*$")
 

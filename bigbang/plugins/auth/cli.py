@@ -69,7 +69,7 @@ def _save_auth(data: dict[str, Any]) -> None:
     REG.parent.mkdir(parents=True, exist_ok=True)
     REG.write_text(json.dumps(data, indent=2))
     try:
-        os.chmod(REG, 0o600)
+        REG.chmod(0o600)
     except Exception:
         pass
 

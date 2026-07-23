@@ -4,7 +4,6 @@ Scout CLI - main entry (formerly BigBang CLI)
 Primary command is now `scout` — distinct from any work/meta tooling
 """
 
-import os
 import sys
 from pathlib import Path
 
@@ -17,7 +16,7 @@ from bigbang.core.plugin_loader import discover_plugins
 
 # Detect which invocation name was used for nicer help
 _invoked = Path(sys.argv[0]).name if sys.argv else "scout"
-_prog_name = os.path.splitext(_invoked)[0] if _invoked else "scout"
+_prog_name = Path(_invoked).stem if _invoked else "scout"
 if _prog_name in ("python", "python3", ""):
     _prog_name = "scout"
 

@@ -105,7 +105,7 @@ def serve(
             {"error": f"mcp SDK not installed ({e}). Run: pip install 'mcp>=1.28.1'"},
             command="mcp serve",
         )
-        raise typer.Exit(1)
+        raise typer.Exit(1) from e
     # Blocks until the client disconnects (stdio) or the process is stopped (sse).
     run_server(transport="sse" if sse else "stdio", port=port)
 

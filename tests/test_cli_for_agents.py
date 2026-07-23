@@ -1,9 +1,10 @@
 """Agentability regression tests — cli-for-agents skill."""
+
 from __future__ import annotations
-import sys
 
 import json
 import subprocess
+import sys
 import time
 from pathlib import Path
 

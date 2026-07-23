@@ -33,7 +33,7 @@ def memory_cmd(
     mem = _read_if_exists(mem_path) or ""
     lines = mem.splitlines()[-n:]
     if query:
-        lines = [l for l in lines if query.lower() in l.lower()]
+        lines = [line for line in lines if query.lower() in line.lower()]
     daily = _read_if_exists(today)
     emit(
         {

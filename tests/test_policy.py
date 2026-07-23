@@ -70,11 +70,13 @@ class TestManifestNetworkMatrix:
         assert ok
 
     def test_fs_write_denied_by_default(self):
-        ok, _reason = policy.check_permission(_manifest(), "fs_write", "/tmp/x")
+        ok, _reason = policy.check_permission(_manifest(), "fs_write", "/var/data/x")
         assert not ok
 
     def test_fs_write_allowed_when_declared(self):
-        ok, _ = policy.check_permission(_manifest(fs_write=True), "fs_write", "/tmp/x")
+        ok, _ = policy.check_permission(
+            _manifest(fs_write=True), "fs_write", "/var/data/x"
+        )
         assert ok
 
     def test_enforce_or_raise_exits_on_deny(self):
@@ -93,9 +95,9 @@ class TestUserAllowlist:
     def test_missing_file_materializes_default_local_only(self):
         ok, _ = policy.check_user_url("http://localhost:8787/sse")
         assert ok
-        assert self.fp.exists(), (
-            "default policy file should be created for the user to edit"
-        )
+        assert (
+            self.fp.exists()
+        ), "default policy file should be created for the user to edit"
         ok2, _reason = policy.check_user_url("https://api.example.com/x")
         assert not ok2
 

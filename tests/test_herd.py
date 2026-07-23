@@ -1,9 +1,10 @@
 """Herd plugin — Herdr-inspired session control surface."""
+
 from __future__ import annotations
-import sys
 
 import json
 import subprocess
+import sys
 import time
 from pathlib import Path
 

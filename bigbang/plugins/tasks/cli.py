@@ -378,7 +378,7 @@ def export_tasks(
         out_path.write_text(json.dumps(res, indent=2))
     except OSError as e:
         emit({"error": f"failed to write {out_path}: {e}"}, command="tasks export")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from e
     emit(
         {
             "exported": str(out_path),

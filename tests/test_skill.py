@@ -1,9 +1,10 @@
 """Skill plugin — teach Dottie-claw / agents to drive Scout."""
+
 from __future__ import annotations
-import sys
 
 import json
 import subprocess
+import sys
 from pathlib import Path
 
 CLI = [sys.executable, "-m", "bigbang.cli"]

@@ -184,7 +184,7 @@ def results(
             [
                 d
                 for d in data
-                if isinstance(d.get("val_bpb"), (int, float)) and d["val_bpb"] > 0
+                if isinstance(d.get("val_bpb"), int | float) and d["val_bpb"] > 0
             ],
             key=lambda x: x["val_bpb"],
         )
