@@ -14,6 +14,7 @@ import re
 import socket
 import threading
 import time
+from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
@@ -63,7 +64,7 @@ def _is_resolvable(host: str, timeout: float = 0.8) -> bool:
         )
         if "host.docker.internal" not in allow:
             try:
-                with open("/etc/hosts", encoding="utf-8", errors="ignore") as f:
+                with Path("/etc/hosts").open(encoding="utf-8", errors="ignore") as f:
                     content = f.read()
                     if "host.docker.internal" not in content:
                         return False

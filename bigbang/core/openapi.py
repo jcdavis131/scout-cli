@@ -17,11 +17,10 @@ import httpx
 import yaml
 
 from bigbang.core.http_utils import sanitize_no_proxy_env
-
-sanitize_no_proxy_env()
-
 from bigbang.core.policy import enforce_or_raise
 from bigbang.core.security import get_secret
+
+sanitize_no_proxy_env()
 
 
 def _sanitize_identifier(name: str) -> str:
@@ -132,8 +131,8 @@ def fetch_spec(url: str) -> dict:
     except Exception:
         try:
             return yaml.safe_load(resp.text) or {}
-        except Exception:
-            raise ValueError(f"Failed to parse spec from {url} as JSON")
+        except Exception as err:
+            raise ValueError(f"Failed to parse spec from {url} as JSON") from err
 
 
 def parse_operations(spec: dict) -> list[dict[str, Any]]:
@@ -283,7 +282,7 @@ def call_openapi(
         full_url,
         params=query_params or None,
         headers=final_headers or None,
-        json=json_body if isinstance(json_body, (dict, list)) else None,
+        json=json_body if isinstance(json_body, dict | list) else None,
         timeout=10.0,
         follow_redirects=True,
     )
@@ -322,7 +321,7 @@ def generate_typer_plugin(tool_name: str, spec: dict, url: str) -> list[str]:
     )
     servers = spec.get("servers") or []
     host = spec.get("host") or ""
-    basePath = spec.get("basePath") or ""
+    base_path = spec.get("basePath") or ""
     ops = parse_operations(spec)
     used_cmd_names = set()
     used_func_names = set()
@@ -378,7 +377,7 @@ def generate_typer_plugin(tool_name: str, spec: dict, url: str) -> list[str]:
         )
         lines.append(f"SPEC_SERVERS = {json.dumps(servers)}")
         lines.append(f"SPEC_HOST = {host!r}")
-        lines.append(f"SPEC_BASE = {basePath!r}")
+        lines.append(f"SPEC_BASE = {base_path!r}")
         lines.append(f"FALLBACK_URL = {url!r}")
         lines.append(
             f'TOOL_MANIFEST = {{"name": {safe_tool_name!r}, "capabilities": {{"network": {{"enabled": True, "domains": [{domain!r}]}}, "filesystem": {{"write": False}}}}}}'

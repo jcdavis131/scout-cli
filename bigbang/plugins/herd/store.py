@@ -209,7 +209,7 @@ def create_session(
 ) -> dict[str, Any]:
     data = _load()
     sid = _new_id()
-    work = str(Path(cwd or os.getcwd()).expanduser().resolve())
+    work = str(Path(cwd or Path.cwd()).expanduser().resolve())
     sess = {
         "id": sid,
         "label": label,
@@ -252,10 +252,10 @@ def start_session(
             f"session {sess['id']} already running (pid {sess.get('pid')})"
         )
 
-    work = str(Path(cwd or sess.get("cwd") or os.getcwd()).expanduser().resolve())
+    work = str(Path(cwd or sess.get("cwd") or Path.cwd()).expanduser().resolve())
     log_path = Path(sess["log_path"])
     log_path.parent.mkdir(parents=True, exist_ok=True)
-    log_f = open(log_path, "a", encoding="utf-8")
+    log_f = log_path.open("a", encoding="utf-8")
     log_f.write(f"\n--- scout herd start {_now()} ---\n")
     log_f.write(f"$ {' '.join(argv)}\n")
     log_f.flush()

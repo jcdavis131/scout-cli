@@ -23,7 +23,7 @@ def _save(data: dict):
     VAULT_FILE.write_text(json.dumps(data, indent=2))
     # 0600 perms
     try:
-        os.chmod(VAULT_FILE, stat.S_IRUSR | stat.S_IWUSR)
+        VAULT_FILE.chmod(stat.S_IRUSR | stat.S_IWUSR)
     except Exception:
         pass
 
