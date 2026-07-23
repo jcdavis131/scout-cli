@@ -4,8 +4,11 @@ Scout CLI - main entry (formerly BigBang CLI)
 Primary command is now `scout` — distinct from any work/meta tooling
 """
 
+from __future__ import annotations
+
 import os
 import sys
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
 import typer
@@ -17,9 +20,35 @@ from bigbang.core.plugin_loader import discover_plugins
 
 # Detect which invocation name was used for nicer help
 _invoked = Path(sys.argv[0]).name if sys.argv else "scout"
-_prog_name = os.path.splitext(_invoked)[0] if _invoked else "scout"
+_prog_name = Path(_invoked).stem if _invoked else "scout"
 if _prog_name in ("python", "python3", ""):
     _prog_name = "scout"
+
+
+def _package_version() -> str:
+    try:
+        return version("scout-cli")
+    except PackageNotFoundError:
+        return "0.0.0-dev"
+
+
+console = Console()
+
+
+def _version_callback(value: bool) -> None:
+    if not value:
+        return
+    ver = _package_version()
+    # Honor --json if already present / about to be set via hoist.
+    want_json = "--json" in sys.argv
+    if want_json:
+        set_json_mode(True)
+        from bigbang.core.output import emit
+
+        emit({"ok": True, "name": "scout-cli", "version": ver}, command="version")
+    else:
+        console.print(f"scout-cli {ver}")
+    raise typer.Exit(0)
 
 
 class ScoutTyper(typer.Typer):
@@ -51,7 +80,9 @@ app = ScoutTyper(
     rich_markup_mode="rich",
     epilog=examples_epilog(
         [
+            "scout --version",
             "scout --help",
+            "scout --json planes world   # digital-world entry for agents",
             "scout tools --help",
             "scout --json tools list",
             "scout --json system doctor",
@@ -64,10 +95,10 @@ app = ScoutTyper(
             "scout --json planes compare",
             "scout skill teach --target dottie",
             "scout mcp serve   # stdio MCP for Cursor/Claude/Dottie",
+            "SCOUT_YES=1 scout tools rm old-tool --force",
         ]
     ),
 )
-console = Console()
 
 
 @app.callback()
@@ -76,8 +107,30 @@ def main(
         False, "--json", help="Output structured JSON for agents"
     ),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose logs"),
+    version: bool = typer.Option(
+        False,
+        "--version",
+        help="Print scout-cli version and exit",
+        callback=_version_callback,
+        is_eager=True,
+    ),
+    yes: bool = typer.Option(
+        False,
+        "--yes",
+        help="Bypass confirmations (sets SCOUT_YES=1 for this process)",
+    ),
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="Preview destructive actions (sets SCOUT_DRY_RUN=1 for this process)",
+    ),
 ):
     """Scout root. Prefer flags over prompts; use --json for machine output."""
+    del version  # handled by eager callback
+    if yes:
+        os.environ["SCOUT_YES"] = "1"
+    if dry_run:
+        os.environ["SCOUT_DRY_RUN"] = "1"
     set_json_mode(json)
 
 

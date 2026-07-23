@@ -70,20 +70,50 @@ def trust_plane() -> dict[str, Any]:
 
 def world_plane() -> dict[str, Any]:
     tools = list_tools()
+    mcp_reg = SHARE / "mcp_servers.json"
+    mcp_servers: dict[str, Any] = {}
+    if mcp_reg.exists():
+        try:
+            import json
+
+            raw = json.loads(mcp_reg.read_text())
+            if isinstance(raw, dict):
+                mcp_servers = raw
+        except Exception:
+            mcp_servers = {}
+    auth_reg = SHARE / "auth.json"
+    auth_services: list[str] = []
+    if auth_reg.exists():
+        try:
+            import json
+
+            raw = json.loads(auth_reg.read_text())
+            if isinstance(raw, dict):
+                auth_services = sorted(raw.keys())
+        except Exception:
+            auth_services = []
     return {
         "id": "world",
         "title": "World",
         "question": "What internet tools exist?",
         "ok": True,
+        "healthy": True,
         "signals": {
             "registered_tools": len(tools),
-            "mcp_serve": "scout mcp serve",
             "tool_names": sorted(tools.keys())[:20],
+            "mcp_servers": len(mcp_servers),
+            "mcp_server_names": sorted(mcp_servers.keys())[:20],
+            "auth_services": auth_services[:20],
+            "mcp_serve": "scout mcp serve",
+            "entry": "scout --json planes world",
         },
         "commands": [
             "scout --json tools list",
+            "scout mcp add <name> <url>",
+            "scout mcp rm <name> --force",
             "scout mcp manifest",
             "scout auth status",
+            "scout auth set-token <svc> --token <token>",
         ],
     }
 

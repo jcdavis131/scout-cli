@@ -32,7 +32,7 @@ def _is_resolvable_fast(host: str, timeout: float = 0.8) -> bool:
         )
         if "host.docker.internal" not in allow:
             try:
-                with open("/etc/hosts", encoding="utf-8", errors="ignore") as f:
+                with Path("/etc/hosts").open(encoding="utf-8", errors="ignore") as f:
                     if "host.docker.internal" not in f.read():
                         return False
             except Exception:
@@ -141,7 +141,10 @@ except Exception:
         ):
             return None
         try:
-            import httpx
+            import importlib.util
+
+            if importlib.util.find_spec("httpx") is None:
+                return None
         except ImportError:
             return None
         found = None
@@ -237,44 +240,62 @@ def _httpx_client(timeout: float = 2.0):
         return None
 
 
+_CLI_ALIASES = ("bb", "scout", "bigbang", "dv", "kitty")
+
+
+def _normalize_plan_cmd(step: str) -> str:
+    """Canonicalize plan steps to `scout …` while accepting legacy aliases."""
+    s = (step or "").strip()
+    if not s:
+        return "scout system doctor"
+    parts = s.split(None, 1)
+    head = parts[0].lower()
+    if head in _CLI_ALIASES:
+        rest = parts[1] if len(parts) > 1 else ""
+        return f"scout {rest}".strip()
+    if s.startswith("--"):
+        return f"scout {s}".strip()
+    return f"scout {s}".strip()
+
+
 def _heuristic_plan(task: str) -> dict[str, Any]:
     q = task.lower()
     tools = list_tools()
     plan: list[str] = []
 
     builtin_hints = {
-        "task": "bb tasks list",
-        "todo": "bb tasks list",
-        "lina": "bb tasks lists",
-        "morning": "bb tasks list",
-        "github": "bb tools search github",
-        "pr": "bb tools search github",
-        "vector": "bb vector list",
-        "hoops": "bb vector hoops --daily"
+        "task": "scout tasks list",
+        "todo": "scout tasks list",
+        "lina": "scout tasks lists",
+        "morning": "scout tasks list",
+        "github": "scout tools search github",
+        "pr": "scout tools search github",
+        "vector": "scout vector list",
+        "hoops": "scout vector hoops --daily"
         if "daily" in q
-        else "bb vector hoops --list",
-        "tennis": "bb tennis serve --help",
-        "family": "bb family brain",
-        "brain": "bb brain goals",
-        "memory": "bb brain memory",
-        "goals": "bb brain goals",
-        "ava": "bb ava status",
-        "tool": "bb tools list",
-        "mcp": "bb mcp manifest",
-        "system": "bb system doctor",
-        "slop": "bb write scan -t '...'",
-        "write": "bb write check -t '...'",
-        "authentic": "bb write generate 'Turnover Shield email' --no-ollama",
-        "humanize": "bb write humanize -t '...'",
-        "mrr": "bb lab mrr",
-        "passive": "bb lab ideas",
-        "turnover": "bb lab shield",
-        "lab": "bb lab ideas",
-        "shield": "bb lab shield",
-        "rtx": "bb rtx status",
-        "offload": "bb rtx queue add --task '...' --program programs/program-ava.md",
-        "alienware": "bb rtx status",
-        "autoresearch": "bb rtx programs",
+        else "scout vector hoops --list",
+        "tennis": "scout tennis serve --help",
+        "family": "scout family brain",
+        "brain": "scout brain goals",
+        "memory": "scout brain memory",
+        "goals": "scout brain goals",
+        "ava": "scout ava status",
+        "tool": "scout tools list",
+        "mcp": "scout mcp manifest",
+        "system": "scout system doctor",
+        "slop": "scout write scan -t '...'",
+        "write": "scout write check -t '...'",
+        "authentic": "scout write generate 'Turnover Shield email' --no-ollama",
+        "humanize": "scout write humanize -t '...'",
+        "mrr": "scout lab mrr",
+        "passive": "scout lab ideas",
+        "turnover": "scout lab shield",
+        "lab": "scout lab ideas",
+        "shield": "scout lab shield",
+        "rtx": "scout rtx status",
+        "offload": "scout rtx queue add --task '...' --program programs/program-ava.md",
+        "alienware": "scout rtx status",
+        "autoresearch": "scout rtx programs",
         "graphify": "scout graphify query 'how does Scout connect to Ava?'",
         "pgraphify": "scout graphify onboard",
         "knowledge graph": "scout graphify onboard",
@@ -302,21 +323,18 @@ def _heuristic_plan(task: str) -> dict[str, Any]:
     for name, m in tools.items():
         desc = m.get("description", "").lower()
         if any(word in name.lower() or word in desc for word in q.split()[:6]):
-            cmd = f"bb {name} --help"
+            cmd = f"scout {name} --help"
             if len(plan) < 5 and cmd not in plan:
                 if name in ("vector", "family", "ava", "tools", "mcp", "system"):
                     continue
                 plan.append(cmd)
 
     if not plan:
-        plan = ["bb system doctor", "bb tools list", "bb mcp manifest"]
+        plan = ["scout system doctor", "scout tools list", "scout mcp manifest"]
 
     cleaned = []
     for p in plan:
-        if not p.startswith("bb "):
-            cleaned.append(f"bb {p}")
-        else:
-            cleaned.append(p)
+        cleaned.append(_normalize_plan_cmd(p))
 
     return {
         "planner_type": "heuristic",
@@ -338,7 +356,7 @@ def _ollama_planner(task: str) -> dict[str, Any]:
     tools = list_tools()
     tool_desc = "\n".join(
         [
-            f"- bb {name}: {m.get('description', '')[:80]}"
+            f"- scout {name}: {m.get('description', '')[:80]}"
             for name, m in list(tools.items())[:25]
         ]
     )
@@ -346,11 +364,11 @@ def _ollama_planner(task: str) -> dict[str, Any]:
     messages = [
         {
             "role": "system",
-            "content": f'You are Ava planner for BigBang CLI. Available tools:\n{tool_desc}\nYou must output JSON only with a plan: {{"plan": ["bb ...", "bb ..."], "reason": "..."}}. Plan should be 2-4 bb commands to accomplish task. Use only bb commands.',
+            "content": f'You are Ava planner for Scout CLI. Available tools:\n{tool_desc}\nYou must output JSON only with a plan: {{"plan": ["scout ...", "scout ..."], "reason": "..."}}. Plan should be 2-4 scout commands to accomplish task. Prefer scout commands (bb/bigbang aliases accepted).',
         },
         {
             "role": "user",
-            "content": f"Task: {task}\nReturn JSON with plan array of bb commands.",
+            "content": f"Task: {task}\nReturn JSON with plan array of scout commands.",
         },
     ]
 
@@ -376,17 +394,11 @@ def _ollama_planner(task: str) -> dict[str, Any]:
     if isinstance(plan, list):
         for item in plan:
             if isinstance(item, str):
-                if item.startswith("bb "):
-                    normalized.append(item)
-                else:
-                    normalized.append(f"bb {item}")
+                normalized.append(_normalize_plan_cmd(item))
             elif isinstance(item, dict):
                 cmd = item.get("command") or item.get("cmd") or item.get("tool")
-                if cmd:
-                    if isinstance(cmd, str) and cmd.startswith("bb "):
-                        normalized.append(cmd)
-                    elif isinstance(cmd, str):
-                        normalized.append(f"bb {cmd}")
+                if isinstance(cmd, str) and cmd.strip():
+                    normalized.append(_normalize_plan_cmd(cmd))
     if not normalized:
         raise ValueError("Ollama planner returned empty plan")
 
@@ -565,7 +577,9 @@ def run(
                 "task": task,
                 "planner": "Ava v6.4 local (heuristic) — fallback",
                 "planner_type": "heuristic",
-                "plan": fallback.get("plan", ["bb system doctor", "bb tools list"]),
+                "plan": fallback.get(
+                    "plan", ["scout system doctor", "scout tools list"]
+                ),
                 "error": str(e)[:300],
                 "disclaimer": "Solo personal project, no connection to employer, built with public/free-tier only",
             },

@@ -6,6 +6,7 @@ from pathlib import Path
 import typer
 
 from bigbang.core.audit import tail_events
+from bigbang.core.cli_ux import effective_dry_run, examples_epilog, fail_agent
 from bigbang.core.output import emit
 from bigbang.core.plugin_loader import get_all_manifests
 
@@ -13,11 +14,18 @@ app = typer.Typer(
     name="system",
     help="🖥️ System — doctor, audit, policy, scaffold",
     no_args_is_help=True,
+    epilog=examples_epilog(
+        [
+            "scout --json system doctor",
+            "scout system scaffold mytool --dry-run",
+            "scout --json system policy",
+        ]
+    ),
 )
 
 
 def run_doctor():
-    from pathlib import Path
+    import os as _os
 
     import httpx
 
@@ -52,7 +60,6 @@ def run_doctor():
             "ok": mem.exists(),
         }
     )
-    import os as _os
 
     def _file_check(name: str, path: Path, require_mode_0600: bool = False):
         """Real check: ok only when the file exists, is readable, and (for the vault) is 0600."""
@@ -83,18 +90,34 @@ def run_doctor():
     checks.append(_file_check("vault", share / "secrets.json", require_mode_0600=True))
     checks.append(_file_check("audit_log", share / "audit.jsonl"))
     checks.append(_file_check("tool_registry", share / "registry.json"))
+    failed = [c["check"] for c in checks if not c.get("ok")]
+    healthy = len(failed) == 0
     emit(
         {
+            "ok": True,
+            "healthy": healthy,
+            "failed": failed,
             "message": "doctor complete",
             "checks": checks,
             "security": "vault 0600, policy caps, audit jsonl",
+            "next": "scout --json planes world",
+            "example": "scout --json system doctor",
         },
         command="system doctor",
     )
 
 
-@app.command("doctor")
+@app.command(
+    "doctor",
+    epilog=examples_epilog(
+        [
+            "scout --json system doctor",
+            "scout system doctor",
+        ]
+    ),
+)
 def doctor():
+    """Machine-checkable boot probe for agents (`healthy` + `failed`)."""
     run_doctor()
 
 
@@ -123,27 +146,52 @@ def policy_cmd():
     )
 
 
-@app.command("scaffold")
+@app.command(
+    "scaffold",
+    epilog=examples_epilog(
+        [
+            "scout system scaffold mytool --dry-run",
+            "scout system scaffold mytool",
+            "scout --json mytool hello",
+        ]
+    ),
+)
 def scaffold_plugin(
     name: str = typer.Argument(..., help="new plugin name"),
     with_manifest: bool = typer.Option(True, help="create manifest.yaml with caps"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="preview paths only"),
 ):
     """Scaffold a foundation-shaped plugin (Examples + contract emit + manifest)."""
     if not re.fullmatch(r"[a-z][a-z0-9_]{0,31}", name):
+        fail_agent(
+            "plugin name must be snake_case starting with a letter",
+            command="system scaffold",
+            example="scout system scaffold mytool",
+            discover="scout system --help",
+        )
+    base = Path(__file__).parent
+    target = base.parent / name
+    cli_file = target / "cli.py"
+    init_file = target / "__init__.py"
+    mf = target / "manifest.yaml"
+    dry = effective_dry_run(dry_run)
+    if dry:
         emit(
             {
-                "ok": False,
-                "error": "plugin name must be snake_case starting with a letter",
-                "example": "scout system scaffold mytool",
+                "would_create": [
+                    str(init_file),
+                    str(cli_file),
+                    str(mf) if with_manifest else None,
+                ],
+                "exists": cli_file.exists(),
+                "dry_run": True,
+                "example": f"scout --json {name} hello",
             },
             command="system scaffold",
         )
-        raise typer.Exit(1)
-    base = Path(__file__).parent
-    target = base.parent / name
+        return
     target.mkdir(parents=True, exist_ok=True)
-    cli_file = target / "cli.py"
-    (target / "__init__.py").touch(exist_ok=True)
+    init_file.touch(exist_ok=True)
     if cli_file.exists():
         emit(
             {
@@ -195,7 +243,6 @@ def register(root):
 '''
     )
     if with_manifest:
-        mf = target / "manifest.yaml"
         mf.write_text(
             f"""name: {name}
 version: 0.7.0
@@ -215,7 +262,7 @@ capabilities:
         {
             "ok": True,
             "created": str(cli_file),
-            "manifest": str(target / "manifest.yaml") if with_manifest else "skipped",
+            "manifest": str(mf) if with_manifest else "skipped",
             "example": f"scout --json {name} hello",
             "next": f"scout --json {name} hello",
             "teach": "scout skill show scout",

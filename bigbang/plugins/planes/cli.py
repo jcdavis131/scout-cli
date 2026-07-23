@@ -2,21 +2,25 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+# MUST be a RUNTIME import, never TYPE_CHECKING-only. Typer eval's this module's
+# annotations (`_root(ctx: typer.Context)`) at CLI-build time via
+# inspect.signature(..., eval_str=True); if `typer` is absent at runtime the WHOLE
+# `scout` CLI dies at startup with `NameError: name 'typer' is not defined`. An
+# over-eager ruff TC autofix that moved this under TYPE_CHECKING is exactly what
+# broke the CLI once (130→108 passing tests) — the noqa keeps it a runtime import.
+import typer  # noqa: TC002
 
 from bigbang.core.cli_ux import examples_epilog
 from bigbang.core.contract import make_plugin_app, ok
 from bigbang.core.output import emit
 from bigbang.plugins.planes import cockpit
 
-if TYPE_CHECKING:
-    import typer
-
 app = make_plugin_app(
     "planes",
     "🧭 Planes — Scout judgment cockpit (Trust · World · Herd · Judgment · Memory). Not a TUI multiplexer.",
     examples=[
         "scout --json planes status",
+        "scout --json planes world",
         "scout --json planes compare",
         "scout --json planes loop",
         "scout planes thesis",
@@ -48,10 +52,35 @@ def status_cmd():
         ok(
             data,
             command="planes status",
-            example="scout --json planes compare",
+            example="scout --json planes world",
             discover="scout skill show scout",
         ),
         command="planes status",
+    )
+
+
+@app.command(
+    "world",
+    epilog=examples_epilog(
+        [
+            "scout --json planes world",
+            "scout planes world",
+            "scout --json tools list",
+            "scout mcp add notion https://mcp.notion.com/sse",
+        ]
+    ),
+)
+def world_cmd():
+    """Digital-world entry — tools, MCP servers, auth for agents."""
+    data = cockpit.world_plane()
+    emit(
+        ok(
+            data,
+            command="planes world",
+            example="scout --json tools list",
+            discover="scout mcp --help",
+        ),
+        command="planes world",
     )
 
 

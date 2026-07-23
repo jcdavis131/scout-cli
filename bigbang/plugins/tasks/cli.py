@@ -25,6 +25,13 @@ from pathlib import Path
 
 import typer
 
+from bigbang.core.cli_ux import (
+    effective_dry_run,
+    effective_force,
+    examples_epilog,
+    fail_agent,
+    is_interactive,
+)
 from bigbang.core.http_utils import sanitize_no_proxy_env
 from bigbang.core.output import emit
 
@@ -33,7 +40,7 @@ sanitize_no_proxy_env()
 
 app = typer.Typer(
     name="tasks",
-    help="✅ Google Tasks — wired into BigBang, lists ↔ bb agent",
+    help="✅ Google Tasks — wired into Scout, lists ↔ scout agent",
     no_args_is_help=True,
 )
 
@@ -249,14 +256,43 @@ def uncomplete_task(
     )
 
 
-@app.command("delete")
+@app.command(
+    "delete",
+    epilog=examples_epilog(
+        [
+            "scout tasks delete TASK_ID --force",
+            "scout tasks delete TASK_ID --dry-run",
+            "scout tasks rm TASK_ID --force",
+        ]
+    ),
+)
 def delete_task(
     task_id: str = typer.Argument(..., help="task id"),
     tasklist: str = typer.Option("@default", "--tasklist", help="tasklist id"),
     force: bool = typer.Option(False, "--force", "-f", help="skip confirmation"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="preview without deleting"),
 ):
-    if not force:
+    """Delete a Google Task. Non-interactive agents must pass --force (or SCOUT_YES=1)."""
+    dry = effective_dry_run(dry_run)
+    if dry:
+        emit(
+            {
+                "would_delete": task_id,
+                "tasklist": tasklist,
+                "dry_run": True,
+            },
+            command="tasks delete",
+        )
+        return
+    if not effective_force(force) and is_interactive():
         typer.confirm(f"Delete task {task_id} in {tasklist}?", abort=True)
+    elif not effective_force(force) and not is_interactive():
+        fail_agent(
+            "Refusing to delete without --force in non-interactive mode",
+            command="tasks delete",
+            example=f"scout tasks delete {task_id} --force",
+            discover="scout tasks list --help",
+        )
     res = _run_gws(
         [
             "tasks",
@@ -269,6 +305,10 @@ def delete_task(
         {"deleted": task_id, "tasklist": tasklist, "result": res},
         command="tasks delete",
     )
+
+
+# Alias for agents that expect resource+rm consistency with secrets/tools.
+app.command("rm", hidden=True)(delete_task)
 
 
 @app.command("create-list")
@@ -378,7 +418,7 @@ def export_tasks(
         out_path.write_text(json.dumps(res, indent=2))
     except OSError as e:
         emit({"error": f"failed to write {out_path}: {e}"}, command="tasks export")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from e
     emit(
         {
             "exported": str(out_path),

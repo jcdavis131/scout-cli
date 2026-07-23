@@ -1,6 +1,8 @@
 import typer
 
 from bigbang.core.cli_ux import (
+    effective_dry_run,
+    effective_force,
     examples_epilog,
     fail_agent,
     is_interactive,
@@ -121,15 +123,15 @@ def rm_cmd(
 ):
     """Delete a vaulted secret. Idempotent: missing key → ok=false, exit 0 with --force."""
     exists = get_secret(key) is not None
-    if dry_run:
+    if effective_dry_run(dry_run):
         emit(
             {"would_delete": key, "exists": exists, "dry_run": True},
             command="secrets rm",
         )
         return
-    if exists and not force and is_interactive():
+    if exists and not effective_force(force) and is_interactive():
         typer.confirm(f"Delete secret {key}?", abort=True)
-    elif exists and not force and not is_interactive():
+    elif exists and not effective_force(force) and not is_interactive():
         fail_agent(
             "Refusing to delete without --force in non-interactive mode",
             command="secrets rm",

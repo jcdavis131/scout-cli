@@ -17,6 +17,7 @@ Primary command: `scout` (aliases: `bb`, `bigbang`, `dv`, `kitty` for compat) �
 scout --json planes thesis
 scout --json planes compare      # honest matrix vs herdr/tmux/apps
 scout --json planes status       # Trust · World · Herd · Judgment · Memory
+scout --json planes world        # digital-world entry: tools · MCP · auth
 scout --json planes loop         # act → audit → rft → ava flywheel
 
 # Teach Dottie-claw

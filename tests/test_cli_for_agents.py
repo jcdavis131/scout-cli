@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import json
 import subprocess
+import sys
 import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-CLI = ["python3", "-m", "bigbang.cli"]
+CLI = [sys.executable, "-m", "bigbang.cli"]
 
 
 def _run(args, *, input_text=None, timeout=8, env=None):
@@ -127,3 +128,129 @@ def test_write_scan_help_has_examples():
     r = _run(["write", "scan", "--help"])
     assert r.returncode == 0
     assert "Examples:" in r.stdout
+
+
+def test_root_version_json():
+    r = _run(["--json", "--version"])
+    assert r.returncode == 0, r.stderr + r.stdout
+    data = json.loads(r.stdout)
+    assert data.get("name") == "scout-cli"
+    assert "version" in data
+    assert data["version"]
+
+
+def test_tasks_delete_noninteractive_fails_fast():
+    t0 = time.monotonic()
+    r = _run(["--json", "tasks", "delete", "fake-task-id"], timeout=5)
+    elapsed = time.monotonic() - t0
+    assert elapsed < 4.0, f"hung for {elapsed:.1f}s — interactive confirm leaked"
+    assert r.returncode == 1
+    data = json.loads(r.stdout)
+    assert "error" in data
+    assert "--force" in data.get("example", "")
+
+
+def test_tasks_delete_dry_run():
+    r = _run(["--json", "tasks", "delete", "fake-task-id", "--dry-run"])
+    assert r.returncode == 0, r.stderr + r.stdout
+    data = json.loads(r.stdout)
+    assert data.get("dry_run") is True
+    assert data.get("would_delete") == "fake-task-id"
+
+
+def test_mcp_rm_dry_run_and_force_missing():
+    dry = _run(["--json", "mcp", "rm", "__no_such_mcp__", "--dry-run"])
+    assert dry.returncode == 0, dry.stderr + dry.stdout
+    payload = json.loads(dry.stdout)
+    assert payload["dry_run"] is True
+    assert payload["exists"] is False
+    # missing + --force is idempotent ok
+    ok = _run(["--json", "mcp", "rm", "__no_such_mcp__", "--force"])
+    assert ok.returncode == 0
+    assert json.loads(ok.stdout)["existed"] is False
+
+
+def test_mcp_add_help_has_examples():
+    r = _run(["mcp", "add", "--help"])
+    assert r.returncode == 0
+    assert "Examples:" in r.stdout
+    assert "--dry-run" in r.stdout
+
+
+def test_auth_logout_dry_run():
+    r = _run(["--json", "auth", "logout", "_agent_logout_probe", "--dry-run"])
+    assert r.returncode == 0, r.stderr + r.stdout
+    data = json.loads(r.stdout)
+    assert data.get("dry_run") is True
+    assert "would_remove_auth" in data
+
+
+def test_auth_logout_noninteractive_requires_force():
+    t0 = time.monotonic()
+    r = _run(["--json", "auth", "logout", "_agent_logout_probe"], timeout=5)
+    elapsed = time.monotonic() - t0
+    assert elapsed < 4.0, f"hung for {elapsed:.1f}s"
+    # If service never existed and vault delete would still run, must require force
+    assert r.returncode == 1
+    data = json.loads(r.stdout)
+    assert "--force" in data.get("example", "")
+
+
+def test_system_doctor_has_healthy_envelope():
+    r = _run(["--json", "system", "doctor"], timeout=15)
+    assert r.returncode == 0, r.stderr + r.stdout
+    data = json.loads(r.stdout)
+    assert "healthy" in data
+    assert "failed" in data
+    assert isinstance(data["checks"], list)
+    assert "ok" in data
+
+
+def test_system_scaffold_dry_run():
+    r = _run(["--json", "system", "scaffold", "agentworldprobe", "--dry-run"])
+    assert r.returncode == 0, r.stderr + r.stdout
+    data = json.loads(r.stdout)
+    assert data.get("dry_run") is True
+    assert "would_create" in data
+
+
+def test_planes_world_entry():
+    r = _run(["--json", "planes", "world"])
+    assert r.returncode == 0, r.stderr + r.stdout
+    data = json.loads(r.stdout)
+    assert data.get("ok") is True
+    world = data.get("data") or data
+    assert world.get("id") == "world" or (world.get("data") or {}).get("id") == "world"
+    # envelope puts plane under data
+    plane = data["data"] if "data" in data and isinstance(data["data"], dict) else data
+    assert plane["id"] == "world"
+    assert "commands" in plane
+    assert any("tools list" in c for c in plane["commands"])
+
+
+def test_agent_plan_uses_scout_not_bb():
+    r = _run(["--json", "agent", "run", "list my tools and check system"])
+    assert r.returncode == 0, r.stderr + r.stdout
+    data = json.loads(r.stdout)
+    plan = data.get("plan") or []
+    assert plan, data
+    assert all(isinstance(s, str) and s.startswith("scout ") for s in plan), plan
+    assert not any(s.startswith("bb ") for s in plan)
+
+
+def test_scout_yes_env_bypasses_tools_rm_confirm():
+    import os
+
+    name = f"agent_yes_{int(time.time())}"
+    add = _run(
+        ["--json", "tools", "add", name, "--type", "cli", "--description", "tmp"]
+    )
+    assert add.returncode == 0, add.stderr
+    env = os.environ.copy()
+    env["SCOUT_YES"] = "1"
+    # SCOUT_YES should satisfy the force gate without --force
+    ok = _run(["--json", "tools", "rm", name], env=env)
+    assert ok.returncode == 0, ok.stderr + ok.stdout
+    assert json.loads(ok.stdout).get("ok") is True or json.loads(ok.stdout).get(
+        "existed"
+    )

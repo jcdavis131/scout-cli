@@ -2,60 +2,60 @@
 
 Solo personal project, no connection to employer, built with public/free-tier only.
 
-**Nodes:** 972 · **Edges:** 2737 · **Communities:** 47
+**Nodes:** 1635 · **Edges:** 4613 · **Communities:** 55
 
-Token estimate: ~1500 tokens per scoped query vs ~69800 naive → **46.5× reduction** (mirrors upstream 71.5×).
+Token estimate: ~556 tokens per scoped query vs ~321031 naive → **577.4× reduction** (measured: sum of indexed file bytes / 4).
 
 ## God Nodes (highest-degree concepts)
 
-- **func:command** (inferred_ref) — degree 92 — file `` — community 0
-- **func:emit** (inferred_ref) — degree 90 — file `` — community 0
-- **Scout CLI** (tool) — degree 67 — file `` — community 1
-- **README.md** (doc) — degree 60 — file `C:\Users\jcdav\scout-cli\README.md` — community 6
-- **cli.py** (file) — degree 58 — file `C:\Users\jcdav\scout-cli\bigbang\plugins\agent\cli.py` — community 1
-- **cli.py** (file) — degree 53 — file `C:\Users\jcdav\scout-cli\bigbang\plugins\ava\cli.py` — community 1
-- **test_cli.py** (file) — degree 53 — file `C:\Users\jcdav\scout-cli\tests\test_cli.py` — community 5
-- **func:Option** (inferred_ref) — degree 53 — file `` — community 0
-- **func:str** (inferred_ref) — degree 50 — file `` — community 0
-- **cli.py** (file) — degree 47 — file `C:\Users\jcdav\scout-cli\bigbang\plugins\auth\cli.py` — community 1
-- **Ava AGI Factory v6.4** (ml_concept) — degree 46 — file `` — community 1
-- **cli.py** (file) — degree 46 — file `C:\Users\jcdav\scout-cli\bigbang\plugins\write\cli.py` — community 0
-- **func:Argument** (inferred_ref) — degree 41 — file `` — community 0
-- **func:len** (inferred_ref) — degree 40 — file `` — community 0
-- **EXTENDING.md** (doc) — degree 38 — file `C:\Users\jcdav\scout-cli\docs\EXTENDING.md` — community 7
+- **func:emit** (inferred_ref) — degree 118 — file `` — community 1
+- **func:command** (inferred_ref) — degree 114 — file `` — community 1
+- **Scout CLI** (tool) — degree 104 — file `` — community 0
+- **func:str** (inferred_ref) — degree 93 — file `` — community 1
+- **func:Option** (inferred_ref) — degree 71 — file `` — community 1
+- **func:exists** (inferred_ref) — degree 70 — file `` — community 1
+- **README.md** (doc) — degree 66 — file `/agent/repos/scout-cli/README.md` — community 2
+- **cli.py** (file) — degree 66 — file `/agent/repos/scout-cli/bigbang/plugins/agent/cli.py` — community 3
+- **func:len** (inferred_ref) — degree 64 — file `` — community 1
+- **Ava AGI Factory v6.4** (ml_concept) — degree 63 — file `` — community 0
+- **func:loads** (inferred_ref) — degree 59 — file `` — community 3
+- **test_cli.py** (file) — degree 54 — file `/agent/repos/scout-cli/tests/test_cli.py` — community 0
+- **func:Argument** (inferred_ref) — degree 53 — file `` — community 1
+- **cli.py** (file) — degree 52 — file `/agent/repos/scout-cli/bigbang/plugins/auth/cli.py` — community 0
+- **cli.py** (file) — degree 52 — file `/agent/repos/scout-cli/bigbang/plugins/ava/cli.py` — community 0
 
 ## Communities
 
-- **Community 0** — 215 nodes — types [('function', 108), ('inferred_ref', 101), ('file', 3), ('module', 2), ('symbol', 1)] — sample: log_event, parse_operations, _collect_secret_headers, call_openapi, generate_typer_plugin
-- **Community 1** — 176 nodes — types [('symbol', 45), ('file', 42), ('module', 38), ('function', 37), ('inferred_ref', 9)] — sample: Ava AGI Factory v6.4, Personal Graphify, Scout CLI, Tennis DINOv3 ExecuTorch, cli.py
-- **Community 2** — 121 nodes — types [('concept', 73), ('file', 11), ('ml_concept', 7), ('doc', 7), ('integration', 5)] — sample: Stripe, First $1k/mo passive goal, Turnover Shield, Davis Family Brain, MRR / Paid Users
-- **Community 3** — 85 nodes — types [('inferred_ref', 46), ('function', 38), ('file', 1)] — sample: discovery.py, fetch_openapi, discover_mcp_tools, _httpx_client, get_ollama_base
-- **Community 4** — 84 nodes — types [('inferred_ref', 44), ('function', 39), ('file', 1)] — sample: tail_events, http_utils.py, _clean_no_proxy_value, sanitize_no_proxy_env, get_httpx_client_kwargs
-- **Community 5** — 61 nodes — types [('function', 19), ('inferred_ref', 15), ('module', 12), ('symbol', 12), ('file', 3)] — sample: mcp_client.py, asyncio, _mcp_http_client_factory, list_mcp_tools_sync, call_mcp_tool_sync
-- **Community 6** — 54 nodes — types [('concept', 51), ('doc', 2), ('tool', 1)] — sample: INTEGRATION.md, Scout Integration STAT — v0.6., Repos, Integration, Install everywhere
-- **Community 7** — 27 nodes — types [('concept', 26), ('doc', 1)] — sample: EXTENDING.md, Extending BigBang CLI v0.5 — A, 30-sec Plugin, edits bigbang/plugins/mytool/m, instantly in bb --help and bb 
-- **Community 8** — 20 nodes — types [('concept', 19), ('doc', 1)] — sample: tasks-plugin.md, Tasks Plugin — LLM Wiki (Wired, Why Tasks Matters, Implementation File, Core Function
-- **Community 9** — 16 nodes — types [('concept', 15), ('doc', 1)] — sample: architecture.md, Architecture v0.4.1 — LLM Wiki, TL;DR for LLM, Core Flow v0.4.1, Security Checklist v0.4.1 (sti
-- **Community 10** — 14 nodes — types [('concept', 13), ('doc', 1)] — sample: quickstart.md, BigBang CLI Quickstart — LLM W, Install & Doctor, Google Tasks Wiring (new v0.4., Universal Tool Registry
-- **Community 11** — 12 nodes — types [('function', 7), ('inferred_ref', 5)] — sample: _is_resolvable, _do, _is_resolvable_fast, _do, _open_browser_url
-- **Community 12** — 12 nodes — types [('concept', 11), ('doc', 1)] — sample: security-model.md, Security Model — LLM Wiki, Principles, Manifest Capability Examples, tools plugin — allows specific
-- **Community 13** — 11 nodes — types [('concept', 8), ('doc', 1), ('reference', 1), ('product', 1)] — sample: graphify-integration.md, Graphify Integration — Scout C, What is baked in, Prerequisites, or: pip install -e ~/personal-
-- **Community 14** — 9 nodes — types [('module', 2), ('symbol', 2), ('class', 2), ('file', 1), ('function', 1)] — sample: context.py, pydantic_settings, BaseSettings, pydantic, Field
+- **Community 0** — 371 nodes — types [('function', 107), ('inferred_ref', 79), ('symbol', 70), ('file', 55), ('module', 53)] — sample: Ava AGI Factory v6.4, Scout CLI, generate_llm_wiki.py, re, pathlib
+- **Community 1** — 355 nodes — types [('function', 195), ('inferred_ref', 153), ('file', 5), ('module', 1), ('symbol', 1)] — sample: load_manifest, doctor_cmd, _normalize_plan_cmd, run, bus
+- **Community 2** — 217 nodes — types [('concept', 160), ('file', 16), ('doc', 10), ('ml_concept', 7), ('product', 6)] — sample: README.md, Scout CLI 🐾 — One CLI to Rule , What's New in v0.7.0 — Judgmen, Differentiator cockpit, Teach Dottie-claw
+- **Community 3** — 161 nodes — types [('function', 68), ('inferred_ref', 46), ('symbol', 18), ('module', 12), ('class', 9)] — sample: json, bigbang.core.output, set_json_mode, _version_callback, main
+- **Community 4** — 58 nodes — types [('inferred_ref', 35), ('function', 23)] — sample: parse_commands, _is_resolvable_fast, _httpx_client, _do, _httpx_client_fallback
+- **Community 5** — 58 nodes — types [('function', 22), ('symbol', 13), ('inferred_ref', 13), ('class', 7), ('module', 2)] — sample: RFT_SCHEMA_VERSION, export_dataset, iter_records, validate_record, to_rft_record
+- **Community 6** — 43 nodes — types [('function', 14), ('inferred_ref', 13), ('module', 8), ('symbol', 6), ('file', 2)] — sample: _dispatch, run_server, _check_sdk, mcp_client.py, asyncio
+- **Community 7** — 40 nodes — types [('concept', 33), ('doc', 3), ('reference', 2), ('metadata', 2)] — sample: https://herdr.dev/, scout-herd.md, name: scout-herd, description: Orchestrate Scout, Scout Herd — agent skill
+- **Community 8** — 35 nodes — types [('inferred_ref', 17), ('function', 15), ('module', 2), ('file', 1)] — sample: refresh_session, list_sessions, get_session, create_session, report_status
+- **Community 9** — 34 nodes — types [('function', 17), ('inferred_ref', 17)] — sample: _policy_check_step, herdr_available, run_doctor, policy_cmd, _file_check
+- **Community 10** — 25 nodes — types [('function', 24), ('file', 1)] — sample: app.js, esc, num, fetchJson, loadBaked
+- **Community 11** — 22 nodes — types [('function', 17), ('inferred_ref', 4), ('file', 1)] — sample: register, register, register, register, register
+- **Community 12** — 22 nodes — types [('concept', 19), ('metadata', 2), ('doc', 1)] — sample: SKILL.md, name: scout, description: Drive Scout CLI —, Scout — Dottie-claw curriculum, Positioning (do not confuse wi
+- **Community 13** — 20 nodes — types [('concept', 19), ('doc', 1)] — sample: tasks-plugin.md, Tasks Plugin — LLM Wiki (Wired, Why Tasks Matters, Implementation File, Core Function
+- **Community 14** — 18 nodes — types [('concept', 16), ('doc', 1), ('reference', 1)] — sample: FOUNDATION.md, Scout Foundation Plan, 1. What Scout is (and is not), 2. Design principles (non-nego, 3. Execution waves
 
 ## Surprising Connections (cross-community, cross-file)
 
-- `context.py` [imports] → `Path` — [EXTRACTED] — files differ? True — communities (14, 1)
-- `http_utils.py` [imports] → `os` — [EXTRACTED] — files differ? True — communities (4, 1)
-- `mcp_client.py` [imports] → `annotations` — [EXTRACTED] — files differ? True — communities (5, 1)
-- `mcp_client.py` [imports] → `Any` — [EXTRACTED] — files differ? True — communities (5, 1)
-- `mcp_client.py` [imports] → `Dict` — [EXTRACTED] — files differ? True — communities (5, 1)
-- `mcp_client.py` [imports] → `List` — [EXTRACTED] — files differ? True — communities (5, 1)
-- `mcp_client.py` [imports] → `Optional` — [EXTRACTED] — files differ? True — communities (5, 1)
-- `mcp_client.py` [imports] → `httpx` — [EXTRACTED] — files differ? True — communities (5, 1)
-- `cli.py` [imports] → `annotations` — [EXTRACTED] — files differ? True — communities (0, 1)
-- `cli.py` [imports] → `Path` — [EXTRACTED] — files differ? True — communities (0, 1)
-- `cli.py` [imports] → `List` — [EXTRACTED] — files differ? True — communities (0, 1)
-- `cli.py` [imports] → `Optional` — [EXTRACTED] — files differ? True — communities (0, 1)
+- `cli.py` [imports] → `os` — [EXTRACTED] — files differ? True — communities (3, 0)
+- `cli.py` [imports] → `re` — [EXTRACTED] — files differ? True — communities (3, 0)
+- `cli.py` [imports] → `subprocess` — [EXTRACTED] — files differ? True — communities (3, 0)
+- `cli.py` [imports] → `sys` — [EXTRACTED] — files differ? True — communities (3, 0)
+- `cli.py` [imports] → `Path` — [EXTRACTED] — files differ? True — communities (3, 0)
+- `cli.py` [imports] → `typer` — [EXTRACTED] — files differ? True — communities (3, 0)
+- `cli.py` [imports] → `emit` — [EXTRACTED] — files differ? True — communities (3, 0)
+- `store.py` [imports] → `json` — [EXTRACTED] — files differ? True — communities (0, 3)
+- `cli.py` [imports] → `annotations` — [EXTRACTED] — files differ? True — communities (1, 0)
+- `cli.py` [imports] → `shlex` — [EXTRACTED] — files differ? True — communities (1, 3)
+- `cli.py` [imports] → `Path` — [EXTRACTED] — files differ? True — communities (1, 0)
+- `cli.py` [imports] → `typer` — [EXTRACTED] — files differ? True — communities (1, 0)
 
 ## Suggested Questions (ask via `pgraphify query`)
 
