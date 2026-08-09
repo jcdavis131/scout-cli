@@ -6,8 +6,8 @@ secure vault storage, and env fallback.
 Solo personal project, no connection to employer, built with public/free-tier only
 """
 
-import json
 import os
+import stat
 import time
 import webbrowser
 from datetime import UTC, datetime
@@ -17,12 +17,9 @@ from typing import Any
 import typer
 from rich.console import Console
 
+from bigbang.core import atomic_json
 from bigbang.core.cli_ux import (
-    effective_dry_run,
-    effective_force,
     examples_epilog,
-    fail_agent,
-    is_interactive,
     prompt_secret_or_fail,
     require_secret_value,
 )
@@ -59,32 +56,64 @@ REG = Path.home() / ".local" / "share" / "bigbang" / "auth.json"
 
 
 def _load_auth() -> dict[str, Any]:
-    """Load auth registry from REG. Returns {} if missing/corrupt."""
-    if REG.exists():
-        try:
-            return json.loads(REG.read_text())
-        except Exception:
-            return {}
-    return {}
+    """Auth registry from REG, or {} when there is none yet.
+
+    It used to return {} for CORRUPT as well as missing -- the old docstring said
+    so plainly ("Returns {} if missing/corrupt"), which documented the behaviour
+    without naming its consequence. Every mutation here is a read-modify-write, so
+    a torn auth.json read as {} and the next `_save_auth` wrote that back: one
+    damaged file plus one ordinary login destroyed every stored credential, with no
+    error. Measured on the identical shape in the secrets vault (fixed 3e301cb):
+
+        vault before      : ['AWS', 'HF_TOKEN', 'OPENAI_KEY']
+        after torn write  : []
+        after next set    : ['NEW_KEY']
+
+    Missing is genuinely empty. Unreadable is not.
+    """
+    return atomic_json.read_json(REG, {})
 
 
 def _save_auth(data: dict[str, Any]) -> None:
-    """Save auth registry with 0600 perms."""
-    REG.parent.mkdir(parents=True, exist_ok=True)
-    REG.write_text(json.dumps(data, indent=2))
-    try:
-        REG.chmod(0o600)
-    except Exception:
-        pass
+    """Save auth registry atomically, requesting 0600 perms (POSIX only — see below).
+
+    Gated here rather than at each command. There are SEVEN `_save_auth(db)` call
+    sites in this file; the helper is the one choke point none of them can forget,
+    and `REG` is plugin-chosen -- no flag redirects it -- so `fs_write` (which
+    enforces `capabilities.filesystem.paths`) is the correct action, not the
+    operator-named `fs_write_arg`.
+
+    The TODO entry that tracked this concluded the gate had to move up to the CLI
+    boundary, because tests/test_core_extra.py relocates `REG` to a tmp_path the
+    allowlist cannot contain, and an absolute declared entry ignores `base=` by
+    design. Relocating HOME instead of REG removes that conflict: the manifest
+    declares `~/.local/share/bigbang/auth.json`, `_norm_path` expanduser()s it, and
+    a test that moves HOME moves both sides together. That is also the more faithful
+    fixture -- a different HOME is the variation that actually occurs, whereas an
+    auth.json somewhere unrelated to HOME is the thing this gate exists to refuse.
+    """
+    from bigbang.core.policy import enforce_or_raise, load_manifest
+
+    manifest = load_manifest(Path(__file__).resolve().parent)
+    enforce_or_raise(manifest, "fs_write", str(REG))
+    # Atomic, and 0600 lands on the TEMP before it becomes auth.json. The old code
+    # wrote the file and chmod'd it afterwards, leaving a window in which every
+    # stored credential existed at default permissions.
+    #
+    # ON WINDOWS THE 0600 IS A NO-OP, same as the secrets vault (see core/security.py and
+    # the measurement in core/atomic_json.py). auth.json holds no secret VALUES — only
+    # metadata and vault-key names — so the exposure here is smaller than the vault's, but
+    # the sentence above still promised a mechanism that does not operate on this platform,
+    # and an unqualified "0600 perms" in a credential path is exactly the kind of claim
+    # someone later builds on. Windows protection is the inherited NTFS ACL, not this.
+    atomic_json.write_json(REG, data, mode=stat.S_IRUSR | stat.S_IWUSR)
 
 
-# Backward compat shims for old names
-def _load() -> dict[str, Any]:
-    return _load_auth()
-
-
-def _save(d: dict[str, Any]) -> None:
-    return _save_auth(d)
+# The `_load` / `_save` back-compat shims that used to sit here are gone. Nothing called
+# them — verified repo-wide for exact `\b(auth|auth_cli|ac)\._(load|save)\b` uses, not just
+# in this file. They survived because GOAT's dead-code rule was a raw `src.count(name)`,
+# and "_load" is a substring of "_load_auth", so the shims looked used every time the real
+# function was mentioned. Fixed in the same commit that deleted them.
 
 
 # ---------------------------------------------------------------------------
@@ -1103,84 +1132,70 @@ def status_cmd(
         )
 
 
-@app.command(
-    "logout",
-    epilog=examples_epilog(
-        [
-            "scout auth logout github --dry-run",
-            "scout auth logout github --force",
-            "scout auth logout github --keep-vault --force",
-            "SCOUT_YES=1 scout auth logout github",
-        ]
-    ),
-)
+@app.command("logout")
 def logout(
     service: str = typer.Argument(..., help="service to logout"),
     delete_vault: bool = typer.Option(
         True, "--delete-vault/--keep-vault", help="Delete from vault as well"
     ),
-    force: bool = typer.Option(False, "--force", "-f", help="skip confirmation"),
-    dry_run: bool = typer.Option(False, "--dry-run", help="preview without deleting"),
 ):
     """
     Remove service from auth.json and optionally delete vault secret.
-    Non-interactive agents must pass --force (or SCOUT_YES=1).
     """
     svc = service.lower().strip()
     db = _load_auth()
     existed = svc in db
-    cfg = SERVICE_CONFIGS.get(svc)
-    vault_key = (cfg.get("vault_key") if cfg else None) or f"{svc.upper()}_TOKEN"
-    dry = effective_dry_run(dry_run)
-    if dry:
-        emit(
-            {
-                "service": svc,
-                "would_remove_auth": existed,
-                "would_delete_vault": bool(delete_vault),
-                "vault_key": vault_key if delete_vault else None,
-                "dry_run": True,
-            },
-            command="auth logout",
-        )
-        return
-    destructive = existed or delete_vault
-    if destructive and not effective_force(force) and is_interactive():
-        typer.confirm(
-            f"Logout {svc}"
-            + (" and delete vault secret" if delete_vault else "")
-            + "?",
-            abort=True,
-        )
-    elif destructive and not effective_force(force) and not is_interactive():
-        fail_agent(
-            "Refusing to logout/delete vault without --force in non-interactive mode",
-            command="auth logout",
-            example=f"scout auth logout {svc} --force",
-            discover="scout auth status",
-        )
     if existed:
         del db[svc]
         _save_auth(db)
 
     vault_deleted = False
     if delete_vault:
+        cfg = SERVICE_CONFIGS.get(svc)
+        vault_key = (cfg.get("vault_key") if cfg else None) or f"{svc.upper()}_TOKEN"
         try:
             from bigbang.core.security import delete_secret
 
+            # delete_secret clears BOTH stores get_secret() reads. Until 2026-08-02 it
+            # checked the file first and touched keyring only on a miss, so a token held
+            # in both was reported deleted and stayed readable.
             vault_deleted = delete_secret(vault_key)
         except Exception:
             vault_deleted = False
 
-    emit(
-        {
-            "service": svc,
-            "removed_from_auth_json": existed,
-            "vault_deleted": vault_deleted,
-            "auth_file": str(REG),
-        },
-        command="auth logout",
-    )
+    out: dict[str, Any] = {
+        "service": svc,
+        "removed_from_auth_json": existed,
+        "vault_deleted": vault_deleted,
+        "auth_file": str(REG),
+    }
+
+    # `logout` deletes ONE vault key. get_token() reads five key variants plus three bare
+    # env vars, so "logged out" was free to be false the moment it was printed. Report the
+    # thing the word actually promises: is a token still readable for this service?
+    if get_token(svc) is not None:
+        out["still_readable"] = True
+        env_set = [
+            n
+            for n in (
+                f"{svc.upper()}_TOKEN",
+                f"{svc.upper()}_API_KEY",
+                f"{svc.upper()}_PAT",
+            )
+            if os.environ.get(n, "").strip()
+        ]
+        out["env_vars_set"] = env_set
+        out["note"] = (
+            f"`scout auth get-token {svc}` still returns a token. "
+            + (
+                f"Unset {', '.join(env_set)} in your shell."
+                if env_set
+                else f"Another vault key matches this service; see `scout secrets list` "
+                f"for {svc.upper()}_TOKEN / _API_KEY / _PAT variants."
+            )
+        )
+
+    emit(out, command="auth logout")
 
 
 def register(root):

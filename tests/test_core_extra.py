@@ -1,6 +1,7 @@
 """Extra coverage: security vault round-trip, auth pure helpers, tasks CRUD (stubbed)."""
 
 import json
+import os
 
 import pytest
 
@@ -17,8 +18,9 @@ class TestSecurityVaultTmpHome:
     def test_set_get_roundtrip_and_perms(self):
         security.set_secret("RT_KEY", "round-trip-value")
         assert security.get_secret("RT_KEY") == "round-trip-value"
-        mode = security.VAULT_FILE.stat().st_mode & 0o777
-        assert mode == 0o600
+        if os.name == "posix":  # Windows chmod cannot express 0o600
+            mode = security.VAULT_FILE.stat().st_mode & 0o777
+            assert mode == 0o600
         assert "RT_KEY" in security.list_secrets()
         assert security.delete_secret("RT_KEY") is True
         assert security.get_secret("RT_KEY") is None
@@ -67,12 +69,48 @@ class TestAuthHelpers:
         assert auth_cli._resolve_client_id("github", cfg) == "cid-env"
 
     def test_load_save_auth_roundtrip(self, tmp_path, monkeypatch):
+        """Relocates HOME, not just REG.
+
+        `_save_auth` now enforces the manifest allowlist, which declares
+        `~/.local/share/bigbang/auth.json`. The old fixture pointed REG at
+        `tmp_path/auth.json` -- a path no expansion of `~` can produce -- so the
+        gate correctly denied it and this test went red. Moving HOME moves BOTH
+        sides: `_norm_path` expanduser()s the declared entry against the same fake
+        home, so the real relationship (auth.json lives under the user's data dir)
+        is preserved instead of bypassed. USERPROFILE is what expanduser reads on
+        Windows, HOME on POSIX -- set both so the fixture is not platform-specific.
+        """
         from bigbang.plugins.auth import cli as auth_cli
 
-        monkeypatch.setattr(auth_cli, "REG", tmp_path / "auth.json")
+        monkeypatch.setenv("USERPROFILE", str(tmp_path))
+        monkeypatch.setenv("HOME", str(tmp_path))
+        reg = tmp_path / ".local" / "share" / "bigbang" / "auth.json"
+        monkeypatch.setattr(auth_cli, "REG", reg)
         auth_cli._save_auth({"github": {"method": "token"}})
         assert auth_cli._load_auth() == {"github": {"method": "token"}}
-        assert (tmp_path / "auth.json").stat().st_mode & 0o777 == 0o600
+        if os.name == "posix":  # Windows chmod cannot express 0o600
+            assert reg.stat().st_mode & 0o777 == 0o600
+
+    def test_save_auth_refuses_a_path_outside_the_allowlist(self, tmp_path, monkeypatch):
+        """The gate must be load-bearing, not decorative.
+
+        Without this, the roundtrip above could keep passing with the enforcement
+        deleted and nothing would notice -- the exact "a gate whose verdict nothing
+        consumes" shape this repo keeps finding. Here REG is deliberately somewhere
+        no expansion of `~` reaches, which is what a compromised or buggy caller
+        would do, and the write must not happen.
+        """
+        import typer
+
+        from bigbang.plugins.auth import cli as auth_cli
+
+        monkeypatch.setenv("USERPROFILE", str(tmp_path / "home"))
+        monkeypatch.setenv("HOME", str(tmp_path / "home"))
+        stray = tmp_path / "elsewhere" / "auth.json"
+        monkeypatch.setattr(auth_cli, "REG", stray)
+        with pytest.raises(typer.Exit):
+            auth_cli._save_auth({"github": {"method": "token"}})
+        assert not stray.exists(), "denied write still created the file"
 
 
 class TestTasksCrudStubbed:

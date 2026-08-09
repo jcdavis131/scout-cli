@@ -75,7 +75,7 @@ async def list_mcp_tools(url: str) -> list[dict[str, Any]]:
                     tools_raw = getattr(resp, "tools", resp)
                     iterable = (
                         tools_raw
-                        if isinstance(tools_raw, list | tuple)
+                        if isinstance(tools_raw, (list, tuple))
                         else getattr(tools_raw, "tools", [])
                     )
                     out: list[dict[str, Any]] = []

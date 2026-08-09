@@ -9,9 +9,22 @@
 "use strict";
 
 const GH = {
-  // Factory default branch is `master` (not `main`).
-  factoryRaw: (path) =>
+  // Monorepo-first: the dottie monorepo (apps/ava-factory) is the source of truth. dottie is
+  // PRIVATE, so unauthenticated raw fetches to it 404 in browsers — each path therefore has an
+  // ordered candidate list: the live-status GIST first (the monorepo gitignores telemetry
+  // by design, so the box publishes hourly via scripts/publish_live_status.py — cutover
+  // 2026-07-19), then repo raws, then the legacy standalone repo, finally the baked
+  // snapshot. If dottie is ever made public, the repo candidate simply starts winning
+  // for non-status paths; nothing else changes.
+  factoryRawCandidates: (path) => [
+    ...(path.endsWith("dottie_live_status.json") || path.endsWith("STATUS.json")
+      ? [`https://gist.githubusercontent.com/jcdavis131/929c3c0b8ad38457f0a19f4f6605085c/raw/dottie_live_status.json`]
+      : []),
+    `https://raw.githubusercontent.com/jcdavis131/dottie/main/apps/ava-factory/${path}`,
     `https://raw.githubusercontent.com/jcdavis131/ava-agi-factory-v6-4/master/${path}`,
+  ],
+  // GitHub Releases are a repo-level feature that did not move with the subtree merge — the
+  // scout-rtx standalone repo remains the canonical Releases publisher (see dottie README).
   rtxReleases: "https://api.github.com/repos/jcdavis131/scout-rtx/releases?per_page=5",
 };
 const POLL_MS = 300_000; // 5 min — unauthenticated GitHub API is 60 req/hr/IP
@@ -25,6 +38,10 @@ const state = {
   etags: {},          // url -> ETag, so unchanged responses return 304 (free, not rate-limited)
   branch: "base",
   source: "loading",
+  // Dottie runs on the VIEWER'S box — this state holds only what their local server reported.
+  dottie: { endpoint: "", status: null, climb: null, error: null, connectedOnce: false },
+  // The research loop also runs on the VIEWER'S box; this tab reuses the Dottie endpoint above.
+  research: { status: null, error: null },
 };
 
 /* ---------------- security ---------------- */
@@ -60,6 +77,22 @@ async function loadBaked() {
   state.pilot = pilot;
 }
 
+// Try an ordered candidate list; first success wins, failures (404/private/offline) fall through.
+async function fetchFirst(urls) {
+  let lastErr;
+  for (const url of urls) {
+    try { return await fetchJson(url); } catch (e) { lastErr = e; }
+  }
+  throw lastErr;
+}
+async function condFetchFirst(urls) {
+  let lastErr;
+  for (const url of urls) {
+    try { return await condFetch(url); } catch (e) { lastErr = e; }
+  }
+  throw lastErr;
+}
+
 // Conditional GET: send If-None-Match; a 304 (not rate-limited) means "unchanged".
 async function condFetch(url) {
   const headers = state.etags[url] ? { "If-None-Match": state.etags[url] } : {};
@@ -75,14 +108,14 @@ async function tryLive() {
   if (typeof document !== "undefined" && document.hidden) return; // don't burn quota on hidden tabs
   let anyLive = false;
   try {
-    state.live.status = await fetchJson(GH.factoryRaw("STATUS.json"));
+    state.live.status = await fetchFirst(GH.factoryRawCandidates("STATUS.json"));
     anyLive = true;
-  } catch { /* private repo or offline — snapshot covers it */ }
+  } catch { /* private repos or offline — snapshot covers it */ }
   try {
-    // The pilot manifest is committed evidence on the factory's master branch — live-fetch it
+    // The pilot manifest is committed evidence (dottie-first, legacy fallback) — live-fetch it
     // (conditional GET keeps unchanged polls free) and prefer it over the baked copy.
-    const out = await condFetch(GH.factoryRaw("runs/cpu_pilot/MANIFEST.json"));
-    if (!out.unchanged) state.live.pilot = await out.res.json();
+    const out = await condFetchFirst(GH.factoryRawCandidates("runs/cpu_pilot/MANIFEST.json"));
+    if (out && !out.unchanged) state.live.pilot = await out.res.json();
     anyLive = anyLive || !!(state.live.pilot || state.pilot);
   } catch { /* baked pilot.json covers it */ }
   try {
@@ -111,12 +144,31 @@ async function tryLive() {
 
 const $ = (sel) => document.querySelector(sel);
 
+function relAge(iso) {
+  const t = Date.parse(iso);
+  if (!isFinite(t)) return null;
+  const s = Math.max(0, (Date.now() - t) / 1000);
+  if (s < 90) return "just now";
+  if (s < 3600) return `${Math.round(s / 60)} min ago`;
+  if (s < 172800) return `${(s / 3600).toFixed(1)} h ago`;
+  return `${Math.round(s / 86400)} d ago`;
+}
+
 function renderSourceBadge() {
   const el = $("#source-badge");
   el.classList.remove("live", "snapshot");
-  if (state.source === "live") {
+  // "Live" must mean the BOX is live, not just that a CDN fetch succeeded: the hourly
+  // gist feed carries published_utc, and a feed older than 2 missed beats is the box
+  // asleep — say so instead of implying freshness (7.4: honesty over uptime theater).
+  const pub = state.live.status?.published_utc;
+  const age = pub ? relAge(pub) : null;
+  const fresh = pub ? Date.now() - Date.parse(pub) < 2 * 3600 * 1000 : false;
+  if (state.source === "live" && age && !fresh) {
+    el.classList.add("snapshot");
+    el.textContent = `stale · box last seen ${age}`;
+  } else if (state.source === "live") {
     el.classList.add("live");
-    el.textContent = "live · GitHub";
+    el.textContent = age ? `live · box seen ${age}` : "live · GitHub";
   } else {
     el.classList.add("snapshot");
     const at = state.snapshot?.generated_at || "unknown";
@@ -144,39 +196,71 @@ const statusChip = (pass) => (pass ? chip("good", "PASS") : chip("critical", "FA
 
 function renderTelemetry() {
   const status = state.live.status || null;
-  const pipe = status
+  // Gist payload v2 (dottie_live_status/v2) carries the factory's full /pipeline/status
+  // under .pipeline — prefer it; fall back to the legacy v1 shape, then the baked snapshot.
+  const v2 = status?.pipeline && !status.pipeline.unreachable ? status.pipeline : null;
+  const pp = v2?.watch?.phase_progress;
+  const run = v2?.watch?.run_progress;
+  const last = v2?.trainer?.last;
+  const pipe = v2
     ? {
-        current_phase: status.builder?.current_phase,
-        phase_progress: status.builder?.phase_progress,
-        total_shards: status.builder?.total_shards,
-        trainer_steps: status.trainer?.steps,
-        trainer_loss: status.trainer?.loss,
-        weekly_training: status.weekly_training?.status ?? status.weekly_training,
+        current_phase: pp ? `p${pp.phase} ${pp.short || pp.name || ""}`.trim()
+                          : v2.flow?.trainer_phase,
+        phase_progress: pp?.frac,
+        total_shards: v2.manifest?.total_shards,
+        trainer_steps: last?.step ?? v2.demand?.step,
+        trainer_loss: last?.lm != null ? num(last.lm, 4) : null,
+        tok_s: last?.tok_s,
+        run_frac: run?.frac,
+        mode_label: v2.mode?.label,
+        mode_stale: !!v2.trainer?.stale,
       }
-    : state.snapshot.pipeline;
+    : status
+      ? {
+          current_phase: status.builder?.current_phase,
+          phase_progress: status.builder?.phase_progress,
+          total_shards: status.builder?.total_shards,
+          trainer_steps: status.trainer?.steps,
+          trainer_loss: status.trainer?.loss,
+          mode_label: status.weekly_training?.status ?? status.weekly_training,
+        }
+      : state.snapshot.pipeline;
   const exps = state.live.experiments || [];
   const best = exps.length ? Math.min(...exps.map((e) => e.val_bpb)) : null;
-  const weekly = String(pipe.weekly_training ?? "unknown");
-  const weeklyKind = weekly.startsWith("BLOCKED") ? "critical"
-    : weekly.toLowerCase().includes("run") ? "good" : "warning";
+  // The box can be up while the FACTORY is down (observed 2026-07-20: the WSL VM died and
+  // took all 14 containers with it, while the host-side publisher kept publishing). The
+  // publisher records {unreachable} honestly; say so instead of rendering bare em-dashes.
+  const down = status?.pipeline?.unreachable;
+  const mode = down ? "factory unreachable"
+    : String(pipe.mode_label ?? pipe.weekly_training ?? "unknown")
+      + (pipe.mode_stale ? " · stale" : "");
+  const modeKind = down ? "critical"
+    : pipe.mode_stale || mode.startsWith("BLOCKED") ? "warning"
+      : /training|run/i.test(mode) ? "good" : "warning";
 
   $("#telemetry-tiles").innerHTML = `
     <div class="tile"><div class="k">Pipeline phase</div>
-      <div class="v">${esc(pipe.current_phase ?? "—")}</div>
-      <div class="d">progress ${pipe.phase_progress != null ? Math.round(pipe.phase_progress * 100) + "%" : "—"} · ${esc(pipe.total_shards ?? "—")} shards</div></div>
+      <div class="v" style="font-size:18px; margin-top:4px">${esc(pipe.current_phase ?? "—")}</div>
+      <div class="d">phase ${pipe.phase_progress != null ? Math.round(pipe.phase_progress * 100) + "%" : "—"}${
+        pipe.run_frac != null ? ` · run ${Math.round(pipe.run_frac * 100)}%` : ""} · ${esc(pipe.total_shards ?? "—")} shards</div></div>
     <div class="tile"><div class="k">Trainer</div>
       <div class="v">${esc(pipe.trainer_steps ?? "—")}<span class="unit">steps</span></div>
-      <div class="d">loss ${esc(pipe.trainer_loss ?? "—")}</div></div>
-    <div class="tile"><div class="k">Weekly training</div>
-      <div class="v" style="font-size:15px; margin-top:6px">${chip(weeklyKind, weekly)}</div></div>
+      <div class="d">loss ${esc(pipe.trainer_loss ?? "—")}${
+        pipe.tok_s != null ? ` · ${esc(Math.round(pipe.tok_s))} tok/s` : ""}</div></div>
+    <div class="tile"><div class="k">Factory mode</div>
+      <div class="v" style="font-size:15px; margin-top:6px">${chip(modeKind, mode)}</div></div>
     <div class="tile"><div class="k">RTX experiments</div>
       <div class="v">${exps.length || "—"}</div>
       <div class="d">${best != null ? `best val_bpb ${num(best, 4)}` : "release feed unreachable"}</div></div>`;
 
   renderBpbChart(exps);
-  $("#telemetry-note").textContent = exps.length
+  const relnote = exps.length
     ? `${exps.length} experiments from scout-rtx releases · polling every ${POLL_MS / 60000} min`
     : "";
+  $("#telemetry-note").textContent = down
+    ? `factory pipeline unreachable from the box (${String(down).slice(0, 80)}) — tiles show `
+      + `no pipeline numbers rather than stale ones${relnote ? " · " + relnote : ""}`
+    : relnote;
 }
 
 function renderBpbChart(exps) {
@@ -461,6 +545,319 @@ function fmtTokens(n) {
   return (n / 1e3).toFixed(0) + "K tokens";
 }
 
+/* ---------------- dottie (the viewer's LOCAL assistant server) ---------------- */
+
+const DOTTIE_DEFAULT_ENDPOINT = "http://localhost:8100";
+const DOTTIE_POLL_MS = 60_000; // localhost polling is free; keep it gentle anyway
+
+function dottieNormalizeEndpoint(raw) {
+  const v = String(raw || "").trim().replace(/\/+$/, "");
+  if (!v) return DOTTIE_DEFAULT_ENDPOINT;
+  if (!/^https?:\/\//i.test(v)) return null; // only http(s) — no other schemes
+  return v;
+}
+
+async function dottieRefresh() {
+  const ep = state.dottie.endpoint;
+  try {
+    state.dottie.status = await fetchJson(`${ep}/status`);
+    state.dottie.error = null;
+    state.dottie.connectedOnce = true;
+    try {
+      state.dottie.climb = await fetchJson(`${ep}/climb/log?limit=100`);
+    } catch { state.dottie.climb = null; /* server predates /climb, or no log yet */ }
+  } catch (e) {
+    state.dottie.status = null;
+    state.dottie.climb = null;
+    state.dottie.error = String((e && e.message) || e);
+  }
+  renderDottie();
+}
+
+function renderDottie() {
+  const d = state.dottie;
+  const note = $("#dottie-conn-note"), tiles = $("#dottie-tiles"),
+    empty = $("#dottie-empty"), cap = $("#dottie-capability"),
+    climbCard = $("#dottie-climb-card");
+
+  if (!d.status) {
+    tiles.innerHTML = "";
+    cap.textContent = "";
+    climbCard.classList.add("hidden");
+    note.textContent = d.error ? "unreachable" : "not connected";
+    empty.classList.toggle("hidden", !d.error);
+    if (d.error) {
+      // Honest failure surface: say exactly what was tried and the plausible causes.
+      empty.innerHTML =
+        `No Dottie server reachable at <code>${esc(d.endpoint)}</code> `
+        + `(<code>${esc(d.error)}</code>). Dottie runs on your machine, not on the web. `
+        + `Likely causes: the server isn't running (see “Run it on your box” below); `
+        + `your browser blocks localhost calls from an HTTPS page (Chrome, Edge and Firefox `
+        + `allow <code>http://localhost</code>, Safari may not); or the server's CORS `
+        + `allow-list doesn't include this origin (set <code>DOTTIE_CORS_ORIGINS</code> — `
+        + `the default already includes this console's hosted origins).`;
+    }
+    return;
+  }
+
+  const s = d.status;
+  const b = s.backends || {};
+  const ollama = b.ollama || {}, ava = b.ava || {};
+  const tasks = (s.data && s.data.tasks) || {};
+  note.textContent =
+    `connected · ${s.service || "?"} v${s.version || "?"} · as of ${new Date((s.ts || 0) * 1000).toLocaleTimeString()}`;
+  empty.classList.add("hidden");
+
+  tiles.innerHTML = `
+    <div class="tile"><div class="k">Brain — ollama</div>
+      <div class="v" style="font-size:15px; margin-top:6px">${
+        ollama.available
+          ? chip("good", `up · ${ollama.model || "?"}${ollama.model_present === false ? " (model missing!)" : ""}`)
+          : chip("critical", "unreachable")}</div>
+      <div class="d">${esc(ollama.url || "")}</div></div>
+    <div class="tile"><div class="k">Trainee — ava</div>
+      <div class="v" style="font-size:15px; margin-top:6px">${
+        ava.available ? chip("warning", "ckpt loaded · zero capability")
+                      : chip("critical", "no checkpoint / no torch")}</div>
+      <div class="d">${esc(ava.error || ava.ckpt || "")}</div></div>
+    <div class="tile"><div class="k">Traces captured</div>
+      <div class="v">${esc(s.data?.traces ?? "—")}</div>
+      <div class="d">${esc(s.data?.data_dir || "")}</div></div>
+    <div class="tile"><div class="k">Tasks</div>
+      <div class="v">${esc(tasks.total ?? "—")}</div>
+      <div class="d">done ${esc(tasks.done ?? "—")} · error ${esc(tasks.error ?? "—")} · queued ${esc(tasks.queued ?? "—")}</div></div>`;
+
+  cap.textContent = s.capability_note || "";
+
+  const iters = (d.climb && d.climb.iterations) || [];
+  if (!iters.length) {
+    climbCard.classList.add("hidden");
+    return;
+  }
+  climbCard.classList.remove("hidden");
+  $("#dottie-climb-note").textContent =
+    `${d.climb.count} iteration(s) recorded · success = verified r_task == 1.0 · every number measured by your server`;
+  renderDottieClimbChart(iters);
+  $("#dottie-climb-table tbody").innerHTML = iters.map((r, i) => {
+    const cfg = r.config || {}, ov = (r.scoreboard || {}).overall || {};
+    return `<tr>
+      <td><strong>${esc(r.iteration_id || i + 1)}</strong></td>
+      <td>${esc(cfg.backend ?? "—")}</td>
+      <td>${esc(cfg.families ?? "—")}</td>
+      <td class="num">${esc(ov.n ?? "—")}</td>
+      <td class="num">${num(ov.success_rate, 3)}</td>
+      <td class="num">${num(ov.mean_r_task, 3)}</td>
+      <td class="num">${num(ov.mean_rl_return, 3)}</td>
+      <td class="num">${num(r.iteration_wall_s, 1)}</td>
+    </tr>`;
+  }).join("");
+}
+
+function renderDottieClimbChart(iters) {
+  const host = $("#dottie-climb-chart");
+  const ys = iters.map((r) => r.scoreboard?.overall?.success_rate)
+    .filter((v) => typeof v === "number");
+  if (ys.length < 2) { host.innerHTML = ""; return; } // a 1-point "line" would just mislead
+  const W = Math.max(640, host.clientWidth || 640), H = 200;
+  const m = { l: 48, r: 16, t: 12, b: 26 };
+  const X = (i) => m.l + (i / Math.max(1, ys.length - 1)) * (W - m.l - m.r);
+  const Y = (v) => m.t + (1 - v) * (H - m.t - m.b); // fixed 0..1 — success rate is a rate
+  let grid = "", labels = "";
+  for (const v of [0, 0.25, 0.5, 0.75, 1]) {
+    grid += `<line class="gridline" x1="${m.l}" x2="${W - m.r}" y1="${Y(v)}" y2="${Y(v)}"/>`;
+    labels += `<text x="${m.l - 8}" y="${Y(v) + 4}" text-anchor="end">${v}</text>`;
+  }
+  const path = ys.map((v, i) => `${i ? "L" : "M"}${X(i).toFixed(1)},${Y(v).toFixed(1)}`).join(" ");
+  const dots = ys.map((v, i) => `<circle class="dot-marker" r="3.5" cx="${X(i)}" cy="${Y(v)}"/>`).join("");
+  host.innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}">
+    ${grid}${labels}
+    <line class="baseline" x1="${m.l}" x2="${W - m.r}" y1="${H - m.b}" y2="${H - m.b}"/>
+    <text x="${m.l}" y="${H - 6}">iter 1</text>
+    <text x="${W - m.r}" y="${H - 6}" text-anchor="end">iter ${ys.length}</text>
+    <path class="line" d="${path}"/>${dots}
+  </svg>`;
+}
+
+function initDottie() {
+  const input = $("#dottie-endpoint");
+  const saved = localStorage.getItem("arxiviq_dottie_endpoint");
+  state.dottie.endpoint = dottieNormalizeEndpoint(saved) || DOTTIE_DEFAULT_ENDPOINT;
+  input.value = state.dottie.endpoint;
+  const connect = () => {
+    const ep = dottieNormalizeEndpoint(input.value);
+    if (!ep) {
+      $("#dottie-conn-note").textContent = "endpoint must be an http(s) URL";
+      return;
+    }
+    input.value = ep;
+    state.dottie.endpoint = ep;
+    localStorage.setItem("arxiviq_dottie_endpoint", ep);
+    $("#dottie-conn-note").textContent = "connecting…";
+    dottieRefresh();
+  };
+  $("#dottie-connect").addEventListener("click", connect);
+  input.addEventListener("keydown", (ev) => { if (ev.key === "Enter") connect(); });
+  // Reconnect silently if this browser talked to a Dottie server before.
+  if (saved) dottieRefresh();
+  setInterval(() => {
+    if (document.hidden) return;
+    if (state.dottie.connectedOnce) dottieRefresh();
+    // Piggyback the research poll on the same interval, but only while its tab is open.
+    if (!$("#view-research").classList.contains("hidden")) researchRefresh();
+  }, DOTTIE_POLL_MS);
+}
+
+/* ---------------- research loop (the viewer's LOCAL research ledger) ---------------- */
+
+// Ledger states -> chip kind. sota = a real, direction-aware improvement; the failed_* / rejected
+// states are honest dead ends; everything mid-flight is amber.
+const RESEARCH_STATE_KIND = {
+  sota: "good",
+  rejected: "critical", failed_validation: "critical", failed_training: "critical",
+  pending: "warning", ready_for_training: "warning", evaluation_pending: "warning",
+};
+
+async function researchRefresh() {
+  const ep = state.dottie.endpoint; // reuse the Dottie tab's endpoint
+  try {
+    state.research.status = await fetchJson(`${ep}/research/status`);
+    state.research.error = null;
+  } catch (e) {
+    state.research.status = null;
+    state.research.error = String((e && e.message) || e);
+  }
+  renderResearch();
+}
+
+function renderResearch() {
+  const r = state.research;
+  const note = $("#research-conn-note"), tiles = $("#research-tiles"),
+    counts = $("#research-counts"), empty = $("#research-empty"),
+    sotaCard = $("#research-sota-card"), ledgerCard = $("#research-ledger-card");
+
+  if (!r.status) {
+    tiles.innerHTML = "";
+    counts.innerHTML = "";
+    sotaCard.classList.add("hidden");
+    ledgerCard.classList.add("hidden");
+    note.textContent = r.error ? "unreachable" : "not connected";
+    empty.classList.toggle("hidden", !r.error);
+    if (r.error) {
+      // Honest failure surface — same shape as the Dottie tab's.
+      empty.innerHTML =
+        `No research server reachable at <code>${esc(state.dottie.endpoint)}</code> `
+        + `(<code>${esc(r.error)}</code>). The research loop runs on your box, not on the web. `
+        + `Start it (<code>python -m dottie.research loop</code>, or the four cron workers) and serve `
+        + `Dottie on <code>:8100</code>; this tab reuses the endpoint you set on the Dottie tab.`;
+    }
+    return;
+  }
+  empty.classList.add("hidden");
+
+  const s = r.status;
+  const b = s.baseline;
+  const c = s.counts || {};
+  const exps = s.experiments || [];
+  const sota = s.sota_history || [];
+  note.textContent =
+    `connected · ${esc(s.service || "dottie-research")} · as of ${new Date((s.ts || 0) * 1000).toLocaleTimeString()}`;
+
+  const dir = b ? (b.higher_is_better ? "higher is better" : "lower is better") : "";
+  tiles.innerHTML = `
+    <div class="tile"><div class="k">Baseline metric</div>
+      <div class="v" style="font-size:18px; margin-top:4px">${
+        b ? `${esc(b.metric_name)} ${num(b.metric_value)}` : "—"}</div>
+      <div class="d">${b ? esc(dir) : "baseline not seeded yet (run seed-baseline)"}</div></div>
+    <div class="tile"><div class="k">Architecture</div>
+      <div class="v" style="font-size:18px; margin-top:4px">${esc(b ? (b.architecture || "—") : "—")}</div></div>
+    <div class="tile"><div class="k">Experiments</div>
+      <div class="v">${esc(c.total ?? exps.length)}</div>
+      <div class="d">pending ${esc(c.pending ?? 0)} · evaluating ${esc(c.evaluation_pending ?? 0)}</div></div>
+    <div class="tile"><div class="k">SOTA</div>
+      <div class="v">${esc(c.sota ?? sota.length)}</div>
+      <div class="d">real improvements over baseline</div></div>`;
+
+  // State-counts summary — a chip per non-empty state.
+  const order = ["pending", "ready_for_training", "evaluation_pending", "sota",
+    "rejected", "failed_validation", "failed_training"];
+  const chips = order.filter((k) => c[k]).map((k) =>
+    chip(RESEARCH_STATE_KIND[k] || "warning", `${k.replaceAll("_", " ")} ${c[k]}`)).join(" ");
+  counts.innerHTML = chips || `<span class="card-note">no experiments in the ledger yet</span>`;
+
+  // Hill-climb — SOTA history (hidden if empty).
+  if (!sota.length) {
+    sotaCard.classList.add("hidden");
+  } else {
+    sotaCard.classList.remove("hidden");
+    renderSotaSparkline(sota, b);
+    $("#research-sota-table tbody").innerHTML = sota.map((h) => `
+      <tr>
+        <td><strong>${esc(h.name || h.id || "—")}</strong></td>
+        <td class="num">${num(h.metric)}</td>
+        <td>${h.updated_ts ? esc(new Date(h.updated_ts * 1000).toLocaleString()) : "—"}</td>
+      </tr>`).join("");
+  }
+
+  // Experiment ledger (hidden if empty).
+  if (!exps.length) {
+    ledgerCard.classList.add("hidden");
+    return;
+  }
+  ledgerCard.classList.remove("hidden");
+  $("#research-ledger-note").textContent =
+    `${exps.length} recent experiment(s) · every metric measured by the proxy micro-benchmark`;
+  $("#research-ledger-table tbody").innerHTML = exps.map((e) => `
+    <tr>
+      <td><strong>${esc(String(e.id || "").slice(0, 8) || "—")}</strong></td>
+      <td>${esc(e.name || "—")}</td>
+      <td>${chip(RESEARCH_STATE_KIND[e.state] || "warning", e.state || "—")}</td>
+      <td class="num">${num(e.metric)}</td>
+      <td class="num">${e.delta != null ? num(e.delta) : "—"}</td>
+      <td class="num">${esc(e.attempts ?? "—")}</td>
+      <td>${esc(e.search_domain || "—")}</td>
+    </tr>`).join("");
+}
+
+// The hill-climb series: seed baseline -> each sota, in order. Only points measured under the
+// CURRENT baseline metric are plotted (`metric` is regime-matched server-side; sota from a
+// retired metric regime arrives as null and is counted out loud instead of drawn dishonestly).
+function renderSotaSparkline(sota, baseline) {
+  const el = $("#research-sota-spark");
+  const pts = sota.filter((h) => typeof h.metric === "number")
+    .sort((p, q) => (p.updated_ts || 0) - (q.updated_ts || 0));
+  const seed = pts.length && typeof pts[0].baseline_value === "number"
+    ? pts[0].baseline_value : null;
+  const series = seed != null ? [seed, ...pts.map((p) => p.metric)] : pts.map((p) => p.metric);
+  if (series.length < 2) {
+    el.classList.add("hidden");
+    el.innerHTML = "";
+    return;
+  }
+  const first = series[0], last = series[series.length - 1];
+  const improved = baseline && baseline.higher_is_better ? last > first : last < first;
+  const skipped = sota.length - pts.length;
+  el.classList.remove("hidden");
+  el.innerHTML = sparklineSvg(series)
+    + `<div class="card-note">${esc(baseline ? baseline.metric_name : "metric")} `
+    + `${num(first)} → <span style="color:var(--status-${improved ? "good" : "critical"})">`
+    + `${num(last)}</span> (Δ ${num(last - first)})`
+    + `${seed != null ? " · anchored at the seed baseline" : ""}`
+    + `${skipped ? ` · ${skipped} sota point(s) from a retired metric regime not plotted` : ""}</div>`;
+}
+
+function sparklineSvg(series, w = 240, h = 44, pad = 4) {
+  const min = Math.min(...series), max = Math.max(...series);
+  const span = (max - min) || 1;
+  const x = (i) => pad + (i * (w - 2 * pad)) / (series.length - 1);
+  const y = (v) => pad + (1 - (v - min) / span) * (h - 2 * pad);
+  const line = series.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
+  const dots = series.map((v, i) => `<circle cx="${x(i).toFixed(1)}" cy="${y(v).toFixed(1)}" `
+    + `r="2.5" fill="${i ? "var(--accent)" : "var(--status-warning)"}"><title>${num(v)}</title></circle>`).join("");
+  return `<svg viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" role="img" `
+    + `aria-label="hill-climb sparkline"><polyline points="${line}" fill="none" `
+    + `stroke="var(--accent)" stroke-width="1.5"/>${dots}</svg>`;
+}
+
 /* ---------------- ecosystem ---------------- */
 
 // "built" = code-complete + mechanically smoke-proven, capability-scale run still pending —
@@ -494,6 +891,8 @@ function switchView(name) {
     t.classList.toggle("active", active);
     t.setAttribute("aria-selected", String(active));
   });
+  // The Research tab reuses the Dottie endpoint; fetch fresh whenever it's opened.
+  if (name === "research") researchRefresh();
 }
 
 function initTheme() {
@@ -521,6 +920,7 @@ function renderAll() {
 async function main() {
   tooltip.el = $("#tooltip");
   initTheme();
+  initDottie();
   document.querySelectorAll(".tab").forEach((t) =>
     t.addEventListener("click", () => switchView(t.dataset.view)));
   await loadBaked();
@@ -531,7 +931,7 @@ async function main() {
   renderPilot();
   setInterval(async () => { await tryLive(); renderTelemetry(); renderPilot(); }, POLL_MS);
   window.addEventListener("resize", () => {
-    renderBpbChart(state.live.experiments || []); renderEvals(); renderPilot();
+    renderBpbChart(state.live.experiments || []); renderEvals(); renderPilot(); renderDottie();
   });
 }
 

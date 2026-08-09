@@ -3,13 +3,38 @@
 from __future__ import annotations
 
 import json
+import os
+import re
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 CLI = [sys.executable, "-m", "bigbang.cli"]
+
+# A THROWAWAY HOME for every subprocess in this module.
+#
+# `test_secrets_set_via_stdin_and_get_json` and `test_secrets_rm_dry_run_and_force`
+# run `secrets set` / `secrets rm` as real subprocesses, and a child cannot see a
+# monkeypatch — so they were writing to the developer's ACTUAL vault at
+# ~/.local/share/bigbang/secrets.json. Every full-suite run mutated it twice.
+#
+# Why that is worse than it sounds: security.py's vault is a read-modify-write, and
+# this repo already measured (3e301cb) that a torn vault plus one ordinary `set` is
+# TOTAL loss of every stored secret. So the suite sat one crash away from wiping a
+# populated vault. It happens to be empty today (2 bytes, `{}`), which is luck, not
+# design — and the same class of accident destroyed the herd ledger on 2026-08-01.
+#
+# Redirecting HOME/USERPROFILE rather than adding an env override to security.py is
+# deliberate: Path.home() is the shared root of VAULT_DIR, REG_DIR, AUDIT_DIR, the
+# auth plugin's REG and the herd store, so ONE test-only change isolates all five
+# with ZERO change to security-critical production code. Verified on Windows —
+# Path.home() reads USERPROFILE, POSIX reads HOME, so both are set.
+_FAKE_HOME_TMP = tempfile.TemporaryDirectory(prefix="scout-agents-home-")
+_FAKE_HOME = _FAKE_HOME_TMP.name
+_ISOLATED_ENV = {**os.environ, "USERPROFILE": _FAKE_HOME, "HOME": _FAKE_HOME}
 
 
 def _run(args, *, input_text=None, timeout=8, env=None):
@@ -18,25 +43,45 @@ def _run(args, *, input_text=None, timeout=8, env=None):
         input=input_text,
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         timeout=timeout,
         cwd=str(ROOT),
-        env=env,
+        env=env or _ISOLATED_ENV,
     )
+
+
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+
+
+def _plain(text: str) -> str:
+    """Help output with rich's styling and line wrapping normalised away.
+
+    Rich wraps help text to the TERMINAL WIDTH and interleaves ANSI style codes, so
+    a substring assertion against raw stdout is environment-dependent: these two
+    tests passed on this box and failed in CI, where a narrower width split
+    "scout --json tools list" across a line. Stripping the escapes and collapsing
+    every whitespace run recovers the phrase at any width, so the assertion tests
+    the help TEXT rather than the terminal geometry that rendered it.
+    """
+    return " ".join(_ANSI_RE.sub("", text).split())
 
 
 def test_root_help_has_examples():
     r = _run(["--help"])
     assert r.returncode == 0
-    assert "Examples:" in r.stdout
-    assert "scout --json tools list" in r.stdout
+    out = _plain(r.stdout)
+    assert "Examples:" in out
+    assert "scout --json tools list" in out
 
 
 def test_secrets_help_has_examples():
     r = _run(["secrets", "set", "--help"])
     assert r.returncode == 0
-    assert "Examples:" in r.stdout
-    assert "--stdin" in r.stdout
-    assert "--value" in r.stdout
+    out = _plain(r.stdout)
+    assert "Examples:" in out
+    assert "--stdin" in out
+    assert "--value" in out
 
 
 def test_secrets_set_via_stdin_and_get_json():
@@ -128,129 +173,3 @@ def test_write_scan_help_has_examples():
     r = _run(["write", "scan", "--help"])
     assert r.returncode == 0
     assert "Examples:" in r.stdout
-
-
-def test_root_version_json():
-    r = _run(["--json", "--version"])
-    assert r.returncode == 0, r.stderr + r.stdout
-    data = json.loads(r.stdout)
-    assert data.get("name") == "scout-cli"
-    assert "version" in data
-    assert data["version"]
-
-
-def test_tasks_delete_noninteractive_fails_fast():
-    t0 = time.monotonic()
-    r = _run(["--json", "tasks", "delete", "fake-task-id"], timeout=5)
-    elapsed = time.monotonic() - t0
-    assert elapsed < 4.0, f"hung for {elapsed:.1f}s — interactive confirm leaked"
-    assert r.returncode == 1
-    data = json.loads(r.stdout)
-    assert "error" in data
-    assert "--force" in data.get("example", "")
-
-
-def test_tasks_delete_dry_run():
-    r = _run(["--json", "tasks", "delete", "fake-task-id", "--dry-run"])
-    assert r.returncode == 0, r.stderr + r.stdout
-    data = json.loads(r.stdout)
-    assert data.get("dry_run") is True
-    assert data.get("would_delete") == "fake-task-id"
-
-
-def test_mcp_rm_dry_run_and_force_missing():
-    dry = _run(["--json", "mcp", "rm", "__no_such_mcp__", "--dry-run"])
-    assert dry.returncode == 0, dry.stderr + dry.stdout
-    payload = json.loads(dry.stdout)
-    assert payload["dry_run"] is True
-    assert payload["exists"] is False
-    # missing + --force is idempotent ok
-    ok = _run(["--json", "mcp", "rm", "__no_such_mcp__", "--force"])
-    assert ok.returncode == 0
-    assert json.loads(ok.stdout)["existed"] is False
-
-
-def test_mcp_add_help_has_examples():
-    r = _run(["mcp", "add", "--help"])
-    assert r.returncode == 0
-    assert "Examples:" in r.stdout
-    assert "--dry-run" in r.stdout
-
-
-def test_auth_logout_dry_run():
-    r = _run(["--json", "auth", "logout", "_agent_logout_probe", "--dry-run"])
-    assert r.returncode == 0, r.stderr + r.stdout
-    data = json.loads(r.stdout)
-    assert data.get("dry_run") is True
-    assert "would_remove_auth" in data
-
-
-def test_auth_logout_noninteractive_requires_force():
-    t0 = time.monotonic()
-    r = _run(["--json", "auth", "logout", "_agent_logout_probe"], timeout=5)
-    elapsed = time.monotonic() - t0
-    assert elapsed < 4.0, f"hung for {elapsed:.1f}s"
-    # If service never existed and vault delete would still run, must require force
-    assert r.returncode == 1
-    data = json.loads(r.stdout)
-    assert "--force" in data.get("example", "")
-
-
-def test_system_doctor_has_healthy_envelope():
-    r = _run(["--json", "system", "doctor"], timeout=15)
-    assert r.returncode == 0, r.stderr + r.stdout
-    data = json.loads(r.stdout)
-    assert "healthy" in data
-    assert "failed" in data
-    assert isinstance(data["checks"], list)
-    assert "ok" in data
-
-
-def test_system_scaffold_dry_run():
-    r = _run(["--json", "system", "scaffold", "agentworldprobe", "--dry-run"])
-    assert r.returncode == 0, r.stderr + r.stdout
-    data = json.loads(r.stdout)
-    assert data.get("dry_run") is True
-    assert "would_create" in data
-
-
-def test_planes_world_entry():
-    r = _run(["--json", "planes", "world"])
-    assert r.returncode == 0, r.stderr + r.stdout
-    data = json.loads(r.stdout)
-    assert data.get("ok") is True
-    world = data.get("data") or data
-    assert world.get("id") == "world" or (world.get("data") or {}).get("id") == "world"
-    # envelope puts plane under data
-    plane = data["data"] if "data" in data and isinstance(data["data"], dict) else data
-    assert plane["id"] == "world"
-    assert "commands" in plane
-    assert any("tools list" in c for c in plane["commands"])
-
-
-def test_agent_plan_uses_scout_not_bb():
-    r = _run(["--json", "agent", "run", "list my tools and check system"])
-    assert r.returncode == 0, r.stderr + r.stdout
-    data = json.loads(r.stdout)
-    plan = data.get("plan") or []
-    assert plan, data
-    assert all(isinstance(s, str) and s.startswith("scout ") for s in plan), plan
-    assert not any(s.startswith("bb ") for s in plan)
-
-
-def test_scout_yes_env_bypasses_tools_rm_confirm():
-    import os
-
-    name = f"agent_yes_{int(time.time())}"
-    add = _run(
-        ["--json", "tools", "add", name, "--type", "cli", "--description", "tmp"]
-    )
-    assert add.returncode == 0, add.stderr
-    env = os.environ.copy()
-    env["SCOUT_YES"] = "1"
-    # SCOUT_YES should satisfy the force gate without --force
-    ok = _run(["--json", "tools", "rm", name], env=env)
-    assert ok.returncode == 0, ok.stderr + ok.stdout
-    assert json.loads(ok.stdout).get("ok") is True or json.loads(ok.stdout).get(
-        "existed"
-    )

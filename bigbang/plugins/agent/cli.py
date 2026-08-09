@@ -32,7 +32,7 @@ def _is_resolvable_fast(host: str, timeout: float = 0.8) -> bool:
         )
         if "host.docker.internal" not in allow:
             try:
-                with Path("/etc/hosts").open(encoding="utf-8", errors="ignore") as f:
+                with open("/etc/hosts", encoding="utf-8", errors="ignore") as f:
                     if "host.docker.internal" not in f.read():
                         return False
             except Exception:
@@ -141,10 +141,7 @@ except Exception:
         ):
             return None
         try:
-            import importlib.util
-
-            if importlib.util.find_spec("httpx") is None:
-                return None
+            import httpx
         except ImportError:
             return None
         found = None
@@ -220,42 +217,13 @@ app = typer.Typer(
 )
 
 
-def _httpx_client(timeout: float = 2.0):
-    try:
-        import httpx
-    except ImportError:
-        return None
-    try:
-        to = httpx.Timeout(timeout, connect=min(timeout, 1.0))
-    except Exception:
-        to = timeout
-    try:
-        return httpx.Client(trust_env=False, timeout=to)
-    except TypeError:
-        try:
-            return httpx.Client(timeout=to)
-        except Exception:
-            return None
-    except Exception:
-        return None
-
-
-_CLI_ALIASES = ("bb", "scout", "bigbang", "dv", "kitty")
-
-
-def _normalize_plan_cmd(step: str) -> str:
-    """Canonicalize plan steps to `scout …` while accepting legacy aliases."""
-    s = (step or "").strip()
-    if not s:
-        return "scout system doctor"
-    parts = s.split(None, 1)
-    head = parts[0].lower()
-    if head in _CLI_ALIASES:
-        rest = parts[1] if len(parts) > 1 else ""
-        return f"scout {rest}".strip()
-    if s.startswith("--"):
-        return f"scout {s}".strip()
-    return f"scout {s}".strip()
+# A module-level `_httpx_client` used to sit here, dead. The live one is
+# `_httpx_client_fallback` (nested, ~line 83, called at ~line 154); bigbang/core/llm.py has
+# its own `_httpx_client` and that one IS used, six times. This copy was called by nothing.
+#
+# It hid because GOAT counted `src.count("_httpx_client")`, and every mention of
+# `_httpx_client_fallback` contains that substring — so the dead function looked used by
+# the live one that replaced it. Fixed in the same commit that deleted this.
 
 
 def _heuristic_plan(task: str) -> dict[str, Any]:
@@ -264,38 +232,38 @@ def _heuristic_plan(task: str) -> dict[str, Any]:
     plan: list[str] = []
 
     builtin_hints = {
-        "task": "scout tasks list",
-        "todo": "scout tasks list",
-        "lina": "scout tasks lists",
-        "morning": "scout tasks list",
-        "github": "scout tools search github",
-        "pr": "scout tools search github",
-        "vector": "scout vector list",
-        "hoops": "scout vector hoops --daily"
+        "task": "bb tasks list",
+        "todo": "bb tasks list",
+        "lina": "bb tasks lists",
+        "morning": "bb tasks list",
+        "github": "bb tools search github",
+        "pr": "bb tools search github",
+        "vector": "bb vector list",
+        "hoops": "bb vector hoops --daily"
         if "daily" in q
-        else "scout vector hoops --list",
-        "tennis": "scout tennis serve --help",
-        "family": "scout family brain",
-        "brain": "scout brain goals",
-        "memory": "scout brain memory",
-        "goals": "scout brain goals",
-        "ava": "scout ava status",
-        "tool": "scout tools list",
-        "mcp": "scout mcp manifest",
-        "system": "scout system doctor",
-        "slop": "scout write scan -t '...'",
-        "write": "scout write check -t '...'",
-        "authentic": "scout write generate 'Turnover Shield email' --no-ollama",
-        "humanize": "scout write humanize -t '...'",
-        "mrr": "scout lab mrr",
-        "passive": "scout lab ideas",
-        "turnover": "scout lab shield",
-        "lab": "scout lab ideas",
-        "shield": "scout lab shield",
-        "rtx": "scout rtx status",
-        "offload": "scout rtx queue add --task '...' --program programs/program-ava.md",
-        "alienware": "scout rtx status",
-        "autoresearch": "scout rtx programs",
+        else "bb vector hoops --list",
+        "tennis": "bb tennis serve --help",
+        "family": "bb family brain",
+        "brain": "bb brain goals",
+        "memory": "bb brain memory",
+        "goals": "bb brain goals",
+        "ava": "bb ava status",
+        "tool": "bb tools list",
+        "mcp": "bb mcp manifest",
+        "system": "bb system doctor",
+        "slop": "bb write scan -t '...'",
+        "write": "bb write check -t '...'",
+        "authentic": "bb write generate 'Turnover Shield email' --no-ollama",
+        "humanize": "bb write humanize -t '...'",
+        "mrr": "bb lab mrr",
+        "passive": "bb lab ideas",
+        "turnover": "bb lab shield",
+        "lab": "bb lab ideas",
+        "shield": "bb lab shield",
+        "rtx": "bb rtx status",
+        "offload": "bb rtx queue add --task '...' --program programs/program-ava.md",
+        "alienware": "bb rtx status",
+        "autoresearch": "bb rtx programs",
         "graphify": "scout graphify query 'how does Scout connect to Ava?'",
         "pgraphify": "scout graphify onboard",
         "knowledge graph": "scout graphify onboard",
@@ -323,18 +291,21 @@ def _heuristic_plan(task: str) -> dict[str, Any]:
     for name, m in tools.items():
         desc = m.get("description", "").lower()
         if any(word in name.lower() or word in desc for word in q.split()[:6]):
-            cmd = f"scout {name} --help"
+            cmd = f"bb {name} --help"
             if len(plan) < 5 and cmd not in plan:
                 if name in ("vector", "family", "ava", "tools", "mcp", "system"):
                     continue
                 plan.append(cmd)
 
     if not plan:
-        plan = ["scout system doctor", "scout tools list", "scout mcp manifest"]
+        plan = ["bb system doctor", "bb tools list", "bb mcp manifest"]
 
     cleaned = []
     for p in plan:
-        cleaned.append(_normalize_plan_cmd(p))
+        if not p.startswith("bb "):
+            cleaned.append(f"bb {p}")
+        else:
+            cleaned.append(p)
 
     return {
         "planner_type": "heuristic",
@@ -344,7 +315,68 @@ def _heuristic_plan(task: str) -> dict[str, Any]:
     }
 
 
-def _ollama_planner(task: str) -> dict[str, Any]:
+def _planner_tool_desc() -> str:
+    """The tool list the LLM planner is shown. Built from PLUGINS, not the registry.
+
+    THE DEFECT THIS REPLACES. The line here was:
+
+        tools = list_tools()
+        tool_desc = "\\n".join([... for name, m in list(tools.items())[:25]])
+
+    `list_tools()` reads `~/.local/share/bigbang/registry.json`, an OPT-IN registry that
+    `register_tool()` populates. Measured 2026-08-03 on this box: **it holds zero tools.**
+    So `tool_desc` was the empty string, and the planner's system prompt read:
+
+        You are Ava planner for BigBang CLI. Available tools:
+        <nothing>
+        You must output JSON only with a plan: ...
+
+    The planner was told it has no tools, then asked to plan with them. It hallucinates
+    `bb ...` strings; `_policy_check_step` rejects the invalid ones against
+    `list_plugin_names()` — so the damage is silent failure and wasted turns rather than
+    bad execution, but the planner has never once been shown the 58 plugins it is routing
+    to. The `[:25]` slice was a red herring: slicing an empty dict is still empty.
+
+    Same shape as every other defect in this estate's logs — a real value answering a
+    different question than the one it appears to answer.
+
+    The plugin manifests are the right source: 56 of them carry `name` + `description`,
+    they are discovered at import time, and the whole block is ~4.5 KB (~1,100 tokens),
+    which is nothing for the 32B planner. Registry tools are unioned in so an explicitly
+    registered non-plugin tool is not lost.
+    """
+    from bigbang.core.plugin_loader import list_plugin_names
+
+    lines: list[str] = []
+    seen: set[str] = set()
+    plugins_root = Path(__file__).resolve().parent.parent
+    for name in sorted(list_plugin_names()):
+        desc = ""
+        mf = plugins_root / name / "manifest.yaml"
+        if mf.is_file():
+            # Deliberately a regex, not a yaml import: this module has no yaml dependency
+            # and a planner prompt is not worth adding one for a single scalar field.
+            m = re.search(r"^description:\s*(.+)$", mf.read_text(encoding="utf-8"), re.M)
+            if m:
+                desc = m.group(1).strip().strip("\"'")
+        lines.append(f"- bb {name}: {desc[:80]}")
+        seen.add(name)
+    for name, meta in sorted(list_tools().items()):
+        if name not in seen:
+            lines.append(f"- bb {name}: {(meta.get('description') or '')[:80]}")
+
+    if not lines:
+        # REFUSE rather than send a prompt that claims there are no tools. An empty list
+        # here means plugin discovery itself failed, which is a real fault and should look
+        # like one instead of degrading into a planner that guesses.
+        raise RuntimeError(
+            "planner has no tools to offer: plugin discovery returned nothing and the "
+            "registry is empty. Run `bb system doctor`."
+        )
+    return "\n".join(lines)
+
+
+def _ollama_planner(task: str, system_prefix: str | None = None) -> dict[str, Any]:
     base = get_ollama_base(timeout=2.0)
     if not base:
         raise RuntimeError(
@@ -353,22 +385,18 @@ def _ollama_planner(task: str) -> dict[str, Any]:
 
     best_model = get_best_model(base=base, timeout=2.0) if _HAS_LLM else "qwen3:32b"
 
-    tools = list_tools()
-    tool_desc = "\n".join(
-        [
-            f"- scout {name}: {m.get('description', '')[:80]}"
-            for name, m in list(tools.items())[:25]
-        ]
-    )
+    tool_desc = _planner_tool_desc()
 
+    # A dynamic profile (Hermes/OpenClaw, core.profiles) prepends its system role so the
+    # planner operates inside that loop's doctrine.
+    system = f'You are Ava planner for BigBang CLI. Available tools:\n{tool_desc}\nYou must output JSON only with a plan: {{"plan": ["bb ...", "bb ..."], "reason": "..."}}. Plan should be 2-4 bb commands to accomplish task. Use only bb commands.'
+    if system_prefix:
+        system = system_prefix + "\n\n" + system
     messages = [
-        {
-            "role": "system",
-            "content": f'You are Ava planner for Scout CLI. Available tools:\n{tool_desc}\nYou must output JSON only with a plan: {{"plan": ["scout ...", "scout ..."], "reason": "..."}}. Plan should be 2-4 scout commands to accomplish task. Prefer scout commands (bb/bigbang aliases accepted).',
-        },
+        {"role": "system", "content": system},
         {
             "role": "user",
-            "content": f"Task: {task}\nReturn JSON with plan array of scout commands.",
+            "content": f"Task: {task}\nReturn JSON with plan array of bb commands.",
         },
     ]
 
@@ -394,11 +422,17 @@ def _ollama_planner(task: str) -> dict[str, Any]:
     if isinstance(plan, list):
         for item in plan:
             if isinstance(item, str):
-                normalized.append(_normalize_plan_cmd(item))
+                if item.startswith("bb "):
+                    normalized.append(item)
+                else:
+                    normalized.append(f"bb {item}")
             elif isinstance(item, dict):
                 cmd = item.get("command") or item.get("cmd") or item.get("tool")
-                if isinstance(cmd, str) and cmd.strip():
-                    normalized.append(_normalize_plan_cmd(cmd))
+                if cmd:
+                    if isinstance(cmd, str) and cmd.startswith("bb "):
+                        normalized.append(cmd)
+                    elif isinstance(cmd, str):
+                        normalized.append(f"bb {cmd}")
     if not normalized:
         raise ValueError("Ollama planner returned empty plan")
 
@@ -493,14 +527,52 @@ def run(
     execute: bool = typer.Option(
         False, "--execute", help="Actually run the plan steps (default: plan only)"
     ),
+    profile: str = typer.Option(
+        None,
+        "--profile",
+        help="dynamic runtime profile: hermes | openclaw (or DOTTIE_PROFILE env)",
+    ),
+    session: str = typer.Option(
+        "scout", "--session", help="session id for persistent context / task logs"
+    ),
 ):
     """Plan (default) or execute a natural-language task via Ava routing."""
+    from bigbang.core.profiles import after_run, build_system_prompt, get_profile
+
+    try:
+        prof = get_profile(profile)
+    except KeyError as e:
+        emit({"error": str(e)}, command="agent run")
+        return
+    prof_prompt = build_system_prompt(prof, session_id=session) if prof else None
+
+    def _finish(payload: dict[str, Any], executed: bool) -> None:
+        """Attach profile state + post-run persistence to the outgoing payload."""
+        if prof is None:
+            return
+        payload["profile"] = {
+            "name": prof.name,
+            "persistence": prof_prompt["persistence"],
+        }
+        if prof_prompt["context"] is not None:
+            payload["profile"]["session_context"] = prof_prompt["context"]
+        outcome = "ok" if executed else "planned"
+        payload["profile"]["post_run"] = after_run(
+            prof,
+            session_id=session,
+            task=task,
+            outcome=outcome,
+            plan=payload.get("plan"),
+        )
+
     tools = list_tools()
     base = get_ollama_base(timeout=2.0) if _HAS_LLM else None
     try:
         if base:
             try:
-                result = _ollama_planner(task)
+                result = _ollama_planner(
+                    task, system_prefix=prof_prompt["system"] if prof_prompt else None
+                )
                 payload = {
                     "task": task,
                     "planner": f"Ava v6.4 local (ollama) — Ollama {result.get('planner_model')} + Frontier rubric + real router",
@@ -525,6 +597,7 @@ def run(
                     payload["execution"] = (
                         "plan only — pass --execute to run the steps (policy-checked, audited)"
                     )
+                _finish(payload, executed=execute)
                 emit(payload, command="agent run")
                 return
             except Exception as e:
@@ -568,6 +641,7 @@ def run(
             payload["execution"] = (
                 "plan only — pass --execute to run the steps (policy-checked, audited)"
             )
+        _finish(payload, executed=execute)
         emit(payload, command="agent run")
 
     except Exception as e:
@@ -577,9 +651,7 @@ def run(
                 "task": task,
                 "planner": "Ava v6.4 local (heuristic) — fallback",
                 "planner_type": "heuristic",
-                "plan": fallback.get(
-                    "plan", ["scout system doctor", "scout tools list"]
-                ),
+                "plan": fallback.get("plan", ["bb system doctor", "bb tools list"]),
                 "error": str(e)[:300],
                 "disclaimer": "Solo personal project, no connection to employer, built with public/free-tier only",
             },
@@ -603,16 +675,29 @@ def bus(
                 "audit_log": str(audit_file),
                 "suggestions": [],
                 "count": 0,
+                # Present on both paths so a consumer never has to test for the key.
+                "records_skipped": 0,
                 "note": "audit log not present yet — run some commands first",
             },
             command="agent bus",
         )
         return
     counts: Counter = Counter()
+    # Whole-file read is CORRECT here — this aggregates across every record rather than
+    # tailing, so unlike audit.tail_events there is nothing to bound.
+    #
+    # Unparsable lines are COUNTED, not silently skipped. `continue` alone made the report
+    # overstate its own completeness: it emits commands_seen and per-command totals with no
+    # hint that records were dropped, so counts come back quietly short and a "recurring"
+    # threshold can be missed for reasons the output never mentions. The real log has 3
+    # such lines out of 28,778 (2026-08-01) — orphaned tails from concurrent appends, since
+    # audit.log_event writes with no lock. Same shape fixed in audit.tail_events.
+    records_skipped = 0
     for line in audit_file.read_text().splitlines():
         try:
             entry = json.loads(line)
         except json.JSONDecodeError:
+            records_skipped += 1
             continue
         cmd = entry.get("command")
         if cmd and cmd != "unknown":
@@ -631,6 +716,7 @@ def bus(
             "audit_log": str(audit_file),
             "threshold": threshold,
             "commands_seen": len(counts),
+            "records_skipped": records_skipped,
             "suggestions": suggestions,
             "count": len(suggestions),
         },

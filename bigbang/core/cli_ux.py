@@ -6,7 +6,6 @@ copy-pasteable Examples, fail-fast with example invocations, dry-run / force.
 
 from __future__ import annotations
 
-import os
 import sys
 from typing import TYPE_CHECKING
 
@@ -17,18 +16,6 @@ from bigbang.core.output import emit, is_json
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-_TRUTHY = {"1", "true", "yes", "y", "on"}
-
-
-def _flag_bool(value: object, *, default: bool = False) -> bool:
-    """Coerce CLI flags; tolerate Typer OptionInfo when commands are called as fns."""
-    if isinstance(value, bool):
-        return value
-    default_attr = getattr(value, "default", None)
-    if isinstance(default_attr, bool):
-        return default_attr
-    return default
-
 
 def is_interactive() -> bool:
     """True only when both stdin and stdout are TTYs (safe to prompt)."""
@@ -36,34 +23,6 @@ def is_interactive() -> bool:
         return bool(sys.stdin.isatty() and sys.stdout.isatty())
     except Exception:
         return False
-
-
-def env_yes() -> bool:
-    """True when SCOUT_YES (or legacy BIGBANG_YES) opts into confirmation bypass."""
-    for key in ("SCOUT_YES", "BIGBANG_YES"):
-        val = (os.environ.get(key) or "").strip().lower()
-        if val in _TRUTHY:
-            return True
-    return False
-
-
-def env_dry_run() -> bool:
-    """True when SCOUT_DRY_RUN (or legacy BIGBANG_DRY_RUN) forces preview mode."""
-    for key in ("SCOUT_DRY_RUN", "BIGBANG_DRY_RUN"):
-        val = (os.environ.get(key) or "").strip().lower()
-        if val in _TRUTHY:
-            return True
-    return False
-
-
-def effective_force(force: object) -> bool:
-    """CLI --force OR SCOUT_YES=1."""
-    return _flag_bool(force) or env_yes()
-
-
-def effective_dry_run(dry_run: object) -> bool:
-    """CLI --dry-run OR SCOUT_DRY_RUN=1."""
-    return _flag_bool(dry_run) or env_dry_run()
 
 
 def examples_epilog(lines: Sequence[str]) -> str:
@@ -89,27 +48,6 @@ def fail_agent(
         payload["discover"] = discover
     emit(payload, command=command)
     raise typer.Exit(code=code)
-
-
-def require_force(
-    *,
-    force: bool,
-    command: str,
-    example: str,
-    action: str = "perform this destructive action",
-) -> None:
-    """Refuse destructive work headlessly unless --force or SCOUT_YES=1."""
-    if effective_force(force):
-        return
-    if is_interactive():
-        typer.confirm(f"{action}?", abort=True)
-        return
-    fail_agent(
-        f"Refusing to {action} without --force in non-interactive mode "
-        "(or set SCOUT_YES=1)",
-        command=command,
-        example=example,
-    )
 
 
 def read_stdin_text(*, strip: bool = True) -> str:

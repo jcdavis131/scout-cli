@@ -25,13 +25,6 @@ from pathlib import Path
 
 import typer
 
-from bigbang.core.cli_ux import (
-    effective_dry_run,
-    effective_force,
-    examples_epilog,
-    fail_agent,
-    is_interactive,
-)
 from bigbang.core.http_utils import sanitize_no_proxy_env
 from bigbang.core.output import emit
 
@@ -40,7 +33,7 @@ sanitize_no_proxy_env()
 
 app = typer.Typer(
     name="tasks",
-    help="✅ Google Tasks — wired into Scout, lists ↔ scout agent",
+    help="✅ Google Tasks — wired into BigBang, lists ↔ bb agent",
     no_args_is_help=True,
 )
 
@@ -256,43 +249,14 @@ def uncomplete_task(
     )
 
 
-@app.command(
-    "delete",
-    epilog=examples_epilog(
-        [
-            "scout tasks delete TASK_ID --force",
-            "scout tasks delete TASK_ID --dry-run",
-            "scout tasks rm TASK_ID --force",
-        ]
-    ),
-)
+@app.command("delete")
 def delete_task(
     task_id: str = typer.Argument(..., help="task id"),
     tasklist: str = typer.Option("@default", "--tasklist", help="tasklist id"),
     force: bool = typer.Option(False, "--force", "-f", help="skip confirmation"),
-    dry_run: bool = typer.Option(False, "--dry-run", help="preview without deleting"),
 ):
-    """Delete a Google Task. Non-interactive agents must pass --force (or SCOUT_YES=1)."""
-    dry = effective_dry_run(dry_run)
-    if dry:
-        emit(
-            {
-                "would_delete": task_id,
-                "tasklist": tasklist,
-                "dry_run": True,
-            },
-            command="tasks delete",
-        )
-        return
-    if not effective_force(force) and is_interactive():
+    if not force:
         typer.confirm(f"Delete task {task_id} in {tasklist}?", abort=True)
-    elif not effective_force(force) and not is_interactive():
-        fail_agent(
-            "Refusing to delete without --force in non-interactive mode",
-            command="tasks delete",
-            example=f"scout tasks delete {task_id} --force",
-            discover="scout tasks list --help",
-        )
     res = _run_gws(
         [
             "tasks",
@@ -305,10 +269,6 @@ def delete_task(
         {"deleted": task_id, "tasklist": tasklist, "result": res},
         command="tasks delete",
     )
-
-
-# Alias for agents that expect resource+rm consistency with secrets/tools.
-app.command("rm", hidden=True)(delete_task)
 
 
 @app.command("create-list")
@@ -410,15 +370,21 @@ def export_tasks(
             ),
         ]
     )
-    out_path = _repo_root() / "docs" / "llm-wiki" / f"tasks-{tasklist}.json"
+    root = _repo_root()
+    out_path = root / "docs" / "llm-wiki" / f"tasks-{tasklist}.json"
     manifest = load_manifest(Path(__file__).resolve().parent)
-    enforce_or_raise(manifest, "fs_write", str(out_path))
+    # Stays on the paths-enforcing "fs_write" action: --tasklist names the FILE,
+    # so no flag can redirect this write. `base=root` anchors the manifest's
+    # relative "docs/llm-wiki" entry to the root resolved above rather than the
+    # process CWD — the two diverge whenever the command is invoked from
+    # anywhere but the checkout.
+    enforce_or_raise(manifest, "fs_write", str(out_path), base=str(root))
     try:
         out_path.parent.mkdir(parents=True, exist_ok=True)
         out_path.write_text(json.dumps(res, indent=2))
     except OSError as e:
         emit({"error": f"failed to write {out_path}: {e}"}, command="tasks export")
-        raise typer.Exit(1) from e
+        raise typer.Exit(1)
     emit(
         {
             "exported": str(out_path),

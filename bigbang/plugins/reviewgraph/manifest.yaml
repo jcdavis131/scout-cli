@@ -1,0 +1,27 @@
+name: reviewgraph
+version: 0.7.0
+description: >
+  Local-first code review graph — parses Python (ast) + JS/TS (regex) into a
+  SQLite symbol graph at <root>/.scout/reviewgraph.db, then computes diff
+  blast radius and a token-budgeted review context for AI reviewers.
+  Filesystem only; git is invoked read-only for diffs/log.
+capabilities:
+  network:
+    enabled: false
+    domains: []
+  filesystem:
+    write: true
+    # Was `"<root>/.scout/"` — the description's prose placeholder (legitimate
+    # there, two lines up) leaked verbatim into the allowlist. Nothing ever
+    # substituted it, so while capabilities.filesystem.paths was unenforced it
+    # sat here as inert config; the moment enforcement landed it would have
+    # denied every write, because no real path is named "<root>".
+    #
+    # `--root` defaults to "." so the graph lands in ./.scout/, same as every
+    # sibling plugin. A caller who points --root at another tree writes to THAT
+    # tree's .scout/ — a relocation this list cannot express, and the reason the
+    # call site must pass the resolved path when the gate is wired.
+    paths:
+      - ".scout"
+  secrets:
+    allow: []

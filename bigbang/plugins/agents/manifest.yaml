@@ -1,0 +1,34 @@
+name: agents
+description: Scout deep agents — LangChain/LangGraph/CrewAI/OpenAI/AutoGen adapters with ACNE 5-layer token-cache, embedding cache, GraphRAG query cache, confidence + provenance
+capabilities:
+  network: false
+  filesystem:
+    enabled: true
+    write: true
+    # Run stores the checkpoint triple-write actually touches (cli.py:61-64).
+    paths:
+      - "~/workspace/bundles/ultra/runs/"
+      - "~/workspace/dottie/pipeline/runs/"
+      - "~/workspace/dottie/bundles/ultra/runs/"
+      - "~/workspace/dottie/apps/ava-factory/bundles/ultra/runs/"
+  secrets: false
+version: 0.8.1
+entry: cli.py
+single_source: ACNE + local TLPG + MoMA-lite router
+tools:
+  - agents_langchain_run
+  - agents_langchain_list
+  - agents_langchain_health
+  - agents_deep_list
+  - agents_graph_walk
+  - agents_cache_stats
+adapters:
+  - langchain
+  - langgraph
+  - crewai
+  - openai
+  - autogen
+cache_layers: 5
+token_savings: ~80%
+provenance: true
+confidence: true

@@ -20,7 +20,6 @@ app = make_plugin_app(
     "🧭 Planes — Scout judgment cockpit (Trust · World · Herd · Judgment · Memory). Not a TUI multiplexer.",
     examples=[
         "scout --json planes status",
-        "scout --json planes world",
         "scout --json planes compare",
         "scout --json planes loop",
         "scout planes thesis",
@@ -52,35 +51,10 @@ def status_cmd():
         ok(
             data,
             command="planes status",
-            example="scout --json planes world",
+            example="scout --json planes compare",
             discover="scout skill show scout",
         ),
         command="planes status",
-    )
-
-
-@app.command(
-    "world",
-    epilog=examples_epilog(
-        [
-            "scout --json planes world",
-            "scout planes world",
-            "scout --json tools list",
-            "scout mcp add notion https://mcp.notion.com/sse",
-        ]
-    ),
-)
-def world_cmd():
-    """Digital-world entry — tools, MCP servers, auth for agents."""
-    data = cockpit.world_plane()
-    emit(
-        ok(
-            data,
-            command="planes world",
-            example="scout --json tools list",
-            discover="scout mcp --help",
-        ),
-        command="planes world",
     )
 
 
