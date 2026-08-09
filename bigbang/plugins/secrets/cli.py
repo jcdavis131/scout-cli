@@ -1,14 +1,12 @@
 import typer
 
 from bigbang.core.cli_ux import (
-    effective_dry_run,
-    effective_force,
     examples_epilog,
     fail_agent,
     is_interactive,
     require_secret_value,
 )
-from bigbang.core.output import emit
+from bigbang.core.output import emit, is_json
 from bigbang.core.security import delete_secret, get_secret, list_secrets, set_secret
 
 app = typer.Typer(
@@ -88,10 +86,25 @@ def get_cmd(key: str = typer.Argument(..., help="secret name")):
             discover="scout secrets list",
         )
     masked = v[:4] + "****" if len(v) > 8 else "****"
-    emit(
-        {"key": key, "value": v, "masked": masked, "source": "vault/keyring/env"},
-        command="secrets get",
-    )
+    # The docstring promises "full value in JSON; masked for humans". Only the first half
+    # was true. emit() renders a dict in human mode with _console.print_json(data=data) —
+    # the WHOLE dict — so `value` was printed in plaintext directly beside `masked`, and
+    # the mask was decoration next to the thing it was supposed to replace.
+    #
+    # Verified 2026-08-02 before changing anything: `scout secrets get X` without --json
+    # printed {"key": ..., "value": "SUPERSECRETVALUE123", "masked": "SUPE****", ...}.
+    # The AUDIT trail was never affected — output.py redacts before log_event — which is
+    # why this survived a check that confirmed redaction was working. Terminal output and
+    # the audit log are different surfaces.
+    #
+    # JSON mode keeps `value`: agents call this to USE the secret, and that half of the
+    # contract is documented and load-bearing.
+    payload = {"key": key, "masked": masked, "source": "vault/keyring/env"}
+    if is_json():
+        payload["value"] = v
+    else:
+        payload["note"] = "value withheld in human output; use --json to retrieve it"
+    emit(payload, command="secrets get")
 
 
 @app.command(
@@ -123,22 +136,34 @@ def rm_cmd(
 ):
     """Delete a vaulted secret. Idempotent: missing key → ok=false, exit 0 with --force."""
     exists = get_secret(key) is not None
-    if effective_dry_run(dry_run):
+    if dry_run:
         emit(
             {"would_delete": key, "exists": exists, "dry_run": True},
             command="secrets rm",
         )
         return
-    if exists and not effective_force(force) and is_interactive():
+    if exists and not force and is_interactive():
         typer.confirm(f"Delete secret {key}?", abort=True)
-    elif exists and not effective_force(force) and not is_interactive():
+    elif exists and not force and not is_interactive():
         fail_agent(
             "Refusing to delete without --force in non-interactive mode",
             command="secrets rm",
             example=f"scout secrets rm {key} --force",
         )
     ok = delete_secret(key) if exists else False
-    emit({"deleted": key, "ok": ok, "existed": exists}, command="secrets rm")
+    payload = {"deleted": key, "ok": ok, "existed": exists}
+
+    # "deleted" must not be allowed to imply "no longer readable". delete_secret clears
+    # both stores it owns; BB_SECRET_* lives in the caller's process and cannot be
+    # touched from here. Anything still readable at this point is that env var.
+    if get_secret(key) is not None:
+        payload["still_readable"] = True
+        payload["note"] = (
+            f"vault entry removed, but BB_SECRET_{key.upper()} is set in this "
+            f"environment and `scout secrets get {key}` still returns a value. "
+            f"Unset it in your shell to finish."
+        )
+    emit(payload, command="secrets rm")
 
 
 def register(root):

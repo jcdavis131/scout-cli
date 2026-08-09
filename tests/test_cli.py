@@ -75,6 +75,8 @@ def test_json_contract():
         [sys.executable, "-m", "bigbang.cli", "--json", "tools", "list"],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
     )
     assert r.returncode == 0
     data = json.loads(r.stdout)
@@ -140,6 +142,8 @@ def test_write_cli_json():
         ],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         timeout=8,
     )
     assert r.returncode == 0

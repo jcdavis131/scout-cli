@@ -4,12 +4,7 @@ from urllib.parse import urlparse as _up
 
 import typer
 
-from bigbang.core.cli_ux import (
-    effective_dry_run,
-    effective_force,
-    examples_epilog,
-    fail_agent,
-)
+from bigbang.core.cli_ux import examples_epilog, fail_agent
 from bigbang.core.http_utils import sanitize_no_proxy_env
 from bigbang.core.openapi import (
     call_openapi,
@@ -162,15 +157,15 @@ def rm_cmd(
 ):
     """Unregister a tool. Idempotent with --force when missing."""
     exists = get_tool(name) is not None
-    if effective_dry_run(dry_run):
+    if dry_run:
         emit(
             {"would_remove": name, "exists": exists, "dry_run": True},
             command="tools rm",
         )
         return
-    if exists and not effective_force(force):
+    if exists and not force:
         # No confirm prompt for registry entries (low blast radius), but require
-        # --force / SCOUT_YES so agents never surprise-delete and retries stay intentional.
+        # --force so agents never surprise-delete and retries stay intentional.
         fail_agent(
             "Pass --force to remove a registered tool",
             command="tools rm",

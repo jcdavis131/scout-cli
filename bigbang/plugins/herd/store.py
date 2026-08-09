@@ -11,6 +11,7 @@ import json
 import os
 import signal
 import subprocess
+import sys
 import time
 import uuid
 from datetime import UTC, datetime
@@ -20,7 +21,51 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-HERD_DIR = Path.home() / ".local" / "share" / "bigbang" / "herd"
+# Ledger-write retry budget. ~0.55s worst case (0.01+0.02+...+0.1), which is short
+# next to wait_status's 0.4s poll interval and long enough to outlast a concurrent
+# reader's open()/close() of sessions.json.
+_SAVE_RETRIES = 10
+_SAVE_BACKOFF_S = 0.01
+
+# Runs the command and records its exit code where a LATER `scout` process can
+# read it. argv[1] is the sentinel path, argv[2:] the real command. It re-exits
+# with the command's own code so the supervisor is transparent to liveness.
+_SUPERVISOR = (
+    "import subprocess,sys,pathlib\n"
+    "rc=subprocess.call(sys.argv[2:])\n"
+    "try:\n"
+    "    pathlib.Path(sys.argv[1]).write_text(str(rc),encoding='utf-8')\n"
+    "except OSError:\n"
+    "    pass\n"
+    "sys.exit(rc)\n"
+)
+
+def _default_herd_dir() -> Path:
+    """State dir, overridable by SCOUT_HERD_DIR.
+
+    The override exists because the SUBPROCESS tests could not be isolated without
+    it. In-process tests monkeypatch HERD_DIR/HERD_FILE/LOG_DIR (see the `isolated`
+    fixture in tests/test_herd.py), but `_run(["--json", "herd", "status"])` spawns a
+    real CLI, and a child process cannot see a monkeypatch — so those tests read and
+    REWROTE the developer's actual ~/.local/share/bigbang/herd/sessions.json.
+
+    Two consequences, both observed rather than theorised:
+      * running the suite MUTATED real user state;
+      * the tests were data-dependent — green on a fresh CI runner with no ledger,
+        red on a dev box with accumulated sessions. That is how four of them looked
+        like a permanent Windows-only failure for so long: the platform was never
+        the variable, the leftover ledger was.
+
+    Matches the store-path convention this codebase already uses elsewhere
+    (SCOUT_SEO_DB in core/seo.py, SCOUT_LINKS_DB in the links plugin).
+    """
+    override = os.environ.get("SCOUT_HERD_DIR")
+    if override:
+        return Path(override)
+    return Path.home() / ".local" / "share" / "bigbang" / "herd"
+
+
+HERD_DIR = _default_herd_dir()
 HERD_FILE = HERD_DIR / "sessions.json"
 LOG_DIR = HERD_DIR / "logs"
 
@@ -52,10 +97,40 @@ def _load() -> dict[str, Any]:
 
 
 def _save(data: dict[str, Any]) -> None:
+    """Write the ledger atomically, and survive concurrent writers.
+
+    The temp name is PER-PROCESS. It used to be a fixed
+    `HERD_FILE.with_suffix(".tmp")`, i.e. one `sessions.tmp` shared by every
+    process on the box, so two `scout herd` invocations wrote the same file and
+    one replaced it out from under the other. Measured before this change: 4
+    processes polling `get_session(refresh=True)` for 6 seconds produced **3334**
+    PermissionErrors --
+
+        [Errno 13] Permission denied: ...sessions.tmp
+        [WinError 32] ...sessions.tmp -> sessions.json
+
+    -- which surfaced through `herd wait` as an OSError and red the suite at
+    random. `os.getpid()` is enough: two live processes cannot share a pid.
+
+    The replace is retried because it is the OTHER half of the race. `os.replace`
+    is atomic, but on Windows it fails with WinError 32 when the TARGET is open,
+    and `_load` opens `sessions.json` on every read. POSIX rename has no such
+    failure, so the retry is a no-op there rather than a platform branch.
+    """
     _ensure_dirs()
-    tmp = HERD_FILE.with_suffix(".tmp")
+    tmp = HERD_FILE.with_suffix(f".{os.getpid()}.tmp")
     tmp.write_text(json.dumps(data, indent=2, default=str), encoding="utf-8")
-    tmp.replace(HERD_FILE)
+    for attempt in range(_SAVE_RETRIES):
+        try:
+            tmp.replace(HERD_FILE)
+            return
+        except PermissionError:
+            if attempt == _SAVE_RETRIES - 1:
+                # Do not leave a per-pid temp behind on the final failure, or a
+                # crashed writer litters the directory with one file per run.
+                tmp.unlink(missing_ok=True)
+                raise
+            time.sleep(_SAVE_BACKOFF_S * (attempt + 1))
 
 
 def _pid_alive(pid: int | None) -> bool:
@@ -97,12 +172,14 @@ def refresh_session(sess: dict[str, Any]) -> dict[str, Any]:
     if authority == "manual" and sess.get("status") in ("blocked", "idle"):
         # Keep human/agent-reported blocked/idle while process may still run.
         if not alive and sess.get("status") not in ("done", "failed"):
-            # Process ended while marked blocked → failed unless exit 0.
+            # Process ended while marked blocked → status follows the exit code.
             code = sess.get("exit_code")
             if code is None and pid:
-                sess["exit_code"] = _reap_exit_code(pid)
+                sess["exit_code"] = _read_exit_sentinel(sess)
+                if sess["exit_code"] is None:
+                    sess["exit_code"] = _reap_exit_code(pid)
                 code = sess.get("exit_code")
-            sess["status"] = "done" if code == 0 else "failed"
+            sess["status"] = _status_from_code(code)
             sess["status_authority"] = "process"
             sess["updated_at"] = _now()
         return sess
@@ -117,12 +194,15 @@ def refresh_session(sess: dict[str, Any]) -> dict[str, Any]:
 
     if pid and not alive:
         if sess.get("exit_code") is None:
-            sess["exit_code"] = _reap_exit_code(pid)
+            # Sentinel first: it is the only source that survives the interpreter
+            # that spawned the process. _reap_exit_code stays as the fallback for
+            # sessions started before the supervisor existed.
+            sess["exit_code"] = _read_exit_sentinel(sess)
+            if sess["exit_code"] is None:
+                sess["exit_code"] = _reap_exit_code(pid)
         code = sess.get("exit_code")
         if sess.get("status") not in ("done", "failed"):
-            sess["status"] = (
-                "done" if code == 0 else ("failed" if code not in (None, 0) else "done")
-            )
+            sess["status"] = _status_from_code(code)
             sess["status_authority"] = "process"
             sess["updated_at"] = _now()
         return sess
@@ -133,8 +213,54 @@ def refresh_session(sess: dict[str, Any]) -> dict[str, Any]:
     return sess
 
 
+def _exit_sentinel_path(sess: dict[str, Any]) -> Path | None:
+    """Where the supervisor records the real exit code (see start_session)."""
+    p = sess.get("exit_path")
+    if p:
+        return Path(p)
+    log = sess.get("log_path")
+    return Path(f"{log}.exit") if log else None
+
+
+def _read_exit_sentinel(sess: dict[str, Any]) -> int | None:
+    """The exit code the supervisor wrote, or None if it never got to write one.
+
+    None is the honest answer for a killed supervisor or a session started before
+    this mechanism existed — and None must NOT be read as success, which is the
+    bug this exists to fix.
+    """
+    path = _exit_sentinel_path(sess)
+    if not path:
+        return None
+    try:
+        return int(path.read_text(encoding="utf-8").strip())
+    except (OSError, ValueError):
+        return None
+
+
+def _status_from_code(code: int | None) -> str:
+    """Exit code -> status, with UNKNOWN kept distinct from success.
+
+    The bug: this used to be
+        "done" if code == 0 else ("failed" if code not in (None, 0) else "done")
+    which sends an UNKNOWN exit code to "done". `_reap_exit_code` returns None on
+    Windows always, and on POSIX for any process that is not a child of the
+    CURRENT interpreter — and every `scout` invocation is a fresh interpreter, so
+    the process that spawned the session is always gone by the time anything asks.
+    Measured: a command exiting 3 reported status 'done', exit_code None, and
+    `herd wait --status done` exited 0. An agent following the plugin's own
+    documented flow was told a failed command had succeeded.
+    """
+    if code is None:
+        return "unknown"
+    return "done" if code == 0 else "failed"
+
+
 def _reap_exit_code(pid: int) -> int | None:
     """Best-effort exit code; usually None for unreaped foreign PIDs."""
+    if not hasattr(os, "WNOHANG"):
+        # Windows: no POSIX reaping — liveness probing is the status authority.
+        return None
     try:
         # Non-blocking wait only works for our children.
         finished_pid, status = os.waitpid(pid, os.WNOHANG)
@@ -209,7 +335,7 @@ def create_session(
 ) -> dict[str, Any]:
     data = _load()
     sid = _new_id()
-    work = str(Path(cwd or Path.cwd()).expanduser().resolve())
+    work = str(Path(cwd or os.getcwd()).expanduser().resolve())
     sess = {
         "id": sid,
         "label": label,
@@ -252,10 +378,10 @@ def start_session(
             f"session {sess['id']} already running (pid {sess.get('pid')})"
         )
 
-    work = str(Path(cwd or sess.get("cwd") or Path.cwd()).expanduser().resolve())
+    work = str(Path(cwd or sess.get("cwd") or os.getcwd()).expanduser().resolve())
     log_path = Path(sess["log_path"])
     log_path.parent.mkdir(parents=True, exist_ok=True)
-    log_f = log_path.open("a", encoding="utf-8")
+    log_f = open(log_path, "a", encoding="utf-8")
     log_f.write(f"\n--- scout herd start {_now()} ---\n")
     log_f.write(f"$ {' '.join(argv)}\n")
     log_f.flush()
@@ -266,8 +392,23 @@ def start_session(
     child_env["SCOUT_HERD_ID"] = sess["id"]
     child_env["SCOUT_HERD_LABEL"] = sess.get("label") or sess["id"]
 
+    # A stale sentinel from a previous run of this session would be read as this
+    # run's result, so clear it before anything can observe the two together.
+    exit_path = Path(f"{log_path}.exit")
+    try:
+        exit_path.unlink()
+    except OSError:
+        pass
+
+    # Run under a supervisor that writes the REAL exit code where a later `scout`
+    # invocation can read it. Without this the exit status is simply unknowable:
+    # os.waitpid only works for children of the current interpreter, and the
+    # interpreter that spawned the session has exited by the time anyone asks.
+    # The supervisor inherits the log fd and passes it to the command, so output
+    # capture is unchanged; it exits with the command's own code, so liveness and
+    # `close --kill` (which killpg's the new session group) behave as before.
     proc = subprocess.Popen(
-        list(argv),
+        [sys.executable, "-c", _SUPERVISOR, str(exit_path), *argv],
         cwd=work,
         stdout=log_f,
         stderr=subprocess.STDOUT,
@@ -281,9 +422,10 @@ def start_session(
     except Exception:
         pass
 
-    sess["cmd"] = list(argv)
+    sess["cmd"] = list(argv)  # what the user asked for, not the supervisor wrapper
     sess["cwd"] = work
     sess["pid"] = proc.pid
+    sess["exit_path"] = str(exit_path)
     sess["exit_code"] = None
     sess["status"] = "working"
     sess["status_authority"] = "process"

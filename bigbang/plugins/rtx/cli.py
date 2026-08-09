@@ -5,6 +5,7 @@ Solo personal project, no connection to employer, built with public/free-tier on
 """
 
 import json
+import os
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -19,7 +20,70 @@ app = typer.Typer(
     no_args_is_help=True,
 )
 
-CUSTOM_ROOT = Path.home() / "workspace" / "autoresearch-rtx-custom"
+
+def _resolve_custom_root() -> Path:
+    """Resolve the scout-rtx working copy. THE CHECKOUT THIS FILE LIVES IN COMES FIRST.
+
+    It did not, and on 2026-08-02 that resolved to a path that does not exist:
+
+        SCOUT_RTX_ROOT                          <unset>
+        DOTTIE_ROOT/apps/scout-rtx              <unset>
+        ~/workspace/dottie/apps/scout-rtx       does not exist
+        ~/workspace/autoresearch-rtx-custom     does not exist
+        ~/workspace/scout-rtx                   does not exist
+        -> ~/workspace/autoresearch-rtx-custom  RETURNED ANYWAY, unguarded  <- missing
+        <repo>/apps/scout-rtx                   EXISTS, never a candidate   <- canonical
+
+    So CUSTOM_ROOT and the BB_OFFLOAD derived from it pointed at a directory that is not
+    there, while the real scout-rtx sat in the same repo as this plugin. Same omission as
+    ava/cli.py (0c89edd) and the same unguarded final return.
+
+    THE CORRECT VERSION ALREADY EXISTED. apps/scout-rtx/bigbang-bridge/cli.py has the same
+    function and checks "the checkout containing this file" second, right after the env
+    override. Two copies, one right, one wrong; this brings the wrong one into line rather
+    than inventing a third approach.
+
+    Walks up looking for apps/scout-rtx instead of counting parents — counting is what made
+    the first attempt at the ava fix land on `.../apps/apps/ava-factory`.
+    """
+    env = os.environ.get("SCOUT_RTX_ROOT")
+    if env:
+        return Path(env).expanduser()
+
+    candidates: list[Path] = []
+
+    # The checkout this plugin is part of.
+    canonical = None
+    for parent in Path(__file__).resolve().parents:
+        cand = parent / "apps" / "scout-rtx"
+        if cand.exists():
+            canonical = cand
+            break
+    if canonical is not None:
+        candidates.append(canonical)
+
+    dottie = os.environ.get("DOTTIE_ROOT")
+    if dottie:
+        candidates.append(Path(dottie).expanduser() / "apps" / "scout-rtx")
+    candidates.append(Path.home() / "workspace" / "dottie" / "apps" / "scout-rtx")
+    # Legacy standalone checkouts, kept so an old box still works, demoted so they cannot
+    # outrank a real one.
+    candidates.append(Path.home() / "workspace" / "autoresearch-rtx-custom")
+    candidates.append(Path.home() / "workspace" / "scout-rtx")
+
+    for cand in candidates:
+        try:
+            if cand.exists():
+                return cand
+        except OSError:
+            continue
+
+    # Nothing exists: name the CANONICAL location so an error points at where the checkout
+    # should be, not at a legacy path that was already missing.
+    return canonical or (Path.home() / "workspace" / "dottie" / "apps" / "scout-rtx")
+
+
+CUSTOM_ROOT = _resolve_custom_root()
 BB_OFFLOAD = CUSTOM_ROOT / "bb-offload"
 QUEUE_FILE = BB_OFFLOAD / "queue.json"
 RESULTS_FILE = BB_OFFLOAD / "results" / "results.jsonl"
@@ -184,7 +248,7 @@ def results(
             [
                 d
                 for d in data
-                if isinstance(d.get("val_bpb"), int | float) and d["val_bpb"] > 0
+                if isinstance(d.get("val_bpb"), (int, float)) and d["val_bpb"] > 0
             ],
             key=lambda x: x["val_bpb"],
         )
@@ -214,6 +278,37 @@ def programs():
             "hint": "Use: .\\scripts\\run-autonomous.ps1 -Program programs\\program-ava.md",
         }
     )
+
+
+
+def _asset_url_denial(url: str) -> dict | None:
+    """None if the network policy allows `url`, else the payload explaining why not.
+
+    Extracted from releases_cmd because inlining it pushed that function to 162 lines and
+    the GOAT audit flagged the regression (6.83 -> 6.5) — a gate catching a real cost of
+    the change rather than a nuisance, so it is paid down instead of baselined.
+
+    WHY THIS URL AND NOT THE OTHER TWO. The other httpx.get calls in that command target
+    GITHUB_API, built from the hardcoded GITHUB_REPO — fixed, auditable destinations.
+    This one comes out of the API RESPONSE and is fetched with follow_redirects=True, then
+    written to disk. "Observed content decides the next request" is the shape the network
+    allowlist exists to bound. Gating the hardcoded pair would only make
+    `scout rtx releases list` fail until someone allowlists api.github.com: friction with
+    no matching risk. tests/test_rtx.py pins that GITHUB_REPO is still a constant, because
+    that asymmetry is only defensible while it is.
+    """
+    from urllib.parse import urlsplit
+
+    from bigbang.core.policy import check_user_url
+
+    allowed, reason = check_user_url(url)
+    if allowed:
+        return None
+    return {
+        "error": f"release asset URL denied by network policy: {reason}",
+        "url": url,
+        "next": f"scout reach allow {urlsplit(url).hostname or url}",
+    }
 
 
 @app.command("releases")
@@ -298,8 +393,13 @@ def releases_cmd(
                 if "results" in name and (
                     name.endswith(".tsv") or name.endswith(".jsonl")
                 ):
+                    denial = _asset_url_denial(asset["browser_download_url"])
+                    if denial is not None:
+                        emit(denial, command="rtx releases")
+                        return
+                    dl_url = asset["browser_download_url"]
                     dl = httpx.get(
-                        asset["browser_download_url"],
+                        dl_url,
                         timeout=20.0,
                         follow_redirects=True,
                     )

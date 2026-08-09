@@ -1,10 +1,12 @@
 name: vector
-version: 0.4.0
-description: Vector MTNNs — hoops/pitch/gridiron control
+description: dumbmodel.com vector arcade — unified MTNN pipeline hoops/pitch/gridiron/equities/unified ablation.
 capabilities:
-  network:
-    enabled: true
-    domains: ["hoops.dumbmodel.com", "pitch.dumbmodel.com", "gridiron.dumbmodel.com", "vercel.com"]
+  network: false
   filesystem:
-    write: true
-    paths: ["~/workspace/vector-hoops/", "~/workspace/vector-pitch/", "~/workspace/vector-gridiron/"]
+    enabled: true
+    # Read-only: the CLI emits JSON to stdout and reads workspace files; no
+    # write sites exist in cli.py, so no write grant and no paths allowlist.
+    write: false
+  secrets: false
+version: 0.8.0
+entry: cli.py

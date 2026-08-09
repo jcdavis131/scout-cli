@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
@@ -31,7 +32,62 @@ except ImportError:  # pragma: no cover
     print("pyyaml required: pip install pyyaml", file=sys.stderr)
     raise
 
-FACTORY = "ava-agi-factory-v6-4"
+FACTORY = "ava-agi-factory-v6-4"  # standalone sibling-checkout name
+DOTTIE_FACTORY = "ava-factory"  # dottie monorepo name (apps/ava-factory)
+
+
+def _dottie_root() -> Path | None:
+    """Return the dottie monorepo root, or None for standalone checkouts.
+
+    Prefers the DOTTIE_ROOT env var; otherwise detects whether this script's
+    own location is inside a dottie checkout (…/apps/scout-cli/arxiviq/…).
+    """
+    env = os.environ.get("DOTTIE_ROOT")
+    if env:
+        p = Path(env).expanduser()
+        if p.exists():
+            return p.resolve()
+    here = Path(__file__).resolve()
+    for parent in here.parents:
+        if parent.name == "scout-cli" and parent.parent.name == "apps":
+            return parent.parent.parent
+    return None
+
+
+def _default_roots() -> Path:
+    """Default --roots: dottie apps/ dir when inside a dottie checkout, else sibling layout."""
+    droot = _dottie_root()
+    if droot is not None:
+        return droot / "apps"
+    return Path(__file__).resolve().parent.parent.parent
+
+
+def _resolve_factory(roots: Path) -> Path:
+    """Find the factory repo under roots — CANONICAL dottie name first, legacy second.
+
+    The order used to be the other way round, and the old docstring said so as if it were
+    intent: "standalone name first, then dottie name". `ava-agi-factory-v6-4` is superseded
+    (HANDOFF; the canonical monorepo is this one), so preferring it means that on any root
+    holding both checkouts the stale tree wins.
+
+    LATENT HERE, NOT LIVE — checked rather than assumed. The default roots are
+    <repo>/apps, which contains only `ava-factory`, so this box resolved correctly today.
+    It fires for anyone passing --roots at a directory holding both names.
+
+    Fixed anyway because the identical preference WAS live one plugin over: ava/cli.py
+    resolved every `scout ava` command to the superseded checkout (0c89edd). Same wrong
+    order, same superseded target, found by sweeping for the shape rather than by waiting
+    for it to bite twice.
+
+    The fallback is now the canonical name too, so a missing factory produces an error
+    naming where it should be rather than where it used to be.
+    """
+    for name in (DOTTIE_FACTORY, FACTORY):
+        cand = roots / name
+        if cand.exists():
+            return cand
+    return roots / DOTTIE_FACTORY
+
 
 SCALE_NOTES: dict[str, dict[str, Any]] = {
     # Status text mirrors TODOS.md Stage 9 (scale ladder); update when the ladder moves.
@@ -320,7 +376,7 @@ def build_pilot(factory: Path) -> dict[str, Any] | None:
     if not manifest_path.exists():
         return None
     data = json.loads(manifest_path.read_text(encoding="utf-8"))
-    data["source_path"] = f"{FACTORY}/runs/cpu_pilot/MANIFEST.json"
+    data["source_path"] = f"{factory.name}/runs/cpu_pilot/MANIFEST.json"
     return data
 
 
@@ -328,15 +384,16 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
         "--roots",
-        default=str(Path(__file__).resolve().parent.parent.parent),
-        help="Directory containing the ecosystem repos (default: sibling layout)",
+        default=str(_default_roots()),
+        help="Directory containing the ecosystem repos "
+        "(default: dottie apps/ when inside a dottie checkout, else sibling layout)",
     )
     parser.add_argument(
         "--out", default=str(Path(__file__).resolve().parent / "site" / "data")
     )
     args = parser.parse_args(argv)
 
-    factory = Path(args.roots) / FACTORY
+    factory = _resolve_factory(Path(args.roots))
     if not factory.exists():
         print(f"factory repo not found at {factory}; aborting", file=sys.stderr)
         return 1
@@ -347,10 +404,14 @@ def main(argv: list[str] | None = None) -> int:
 
     cards = {
         "generated_at": stamp,
-        "source": FACTORY,
+        "source": factory.name,
         "cards": build_model_cards(factory),
     }
-    snapshot = {"generated_at": stamp, "source": FACTORY, **build_snapshot(factory)}
+    snapshot = {
+        "generated_at": stamp,
+        "source": factory.name,
+        **build_snapshot(factory),
+    }
     ecosystem = {"generated_at": stamp, **build_ecosystem()}
 
     (out / "model-cards.json").write_text(json.dumps(cards, indent=1), encoding="utf-8")

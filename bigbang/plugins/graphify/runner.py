@@ -22,6 +22,7 @@ DISCLAIMER = (
     "Solo personal project, no connection to employer, built with public/free-tier only"
 )
 
+# Standalone sibling checkouts, resolved against ~
 DEFAULT_ECOSYSTEM_ROOTS = (
     "scout-cli",
     "ava-agi-factory-v6-4",
@@ -29,11 +30,43 @@ DEFAULT_ECOSYSTEM_ROOTS = (
     "personal-graphify/references",
 )
 
+# dottie monorepo layout, resolved against the dottie checkout root
+DOTTIE_ECOSYSTEM_ROOTS = (
+    "apps/scout-cli",
+    "apps/ava-factory",
+    "packages/personal-graphify",
+    "packages/personal-graphify/references",
+)
+
+
+def dottie_root() -> Path | None:
+    """Return the dottie monorepo root (DOTTIE_ROOT env, then ~/workspace/dottie), or None."""
+    env = os.environ.get("DOTTIE_ROOT")
+    if env:
+        p = Path(env).expanduser()
+        try:
+            if p.exists():
+                return p.resolve()
+        except OSError:
+            pass
+    cand = Path.home() / "workspace" / "dottie"
+    try:
+        if cand.exists():
+            return cand.resolve()
+    except OSError:
+        pass
+    return None
+
 
 def personal_graphify_home() -> Path:
     env = os.environ.get("PERSONAL_GRAPHIFY_HOME") or os.environ.get("PGRAPHIFY_HOME")
     if env:
         return Path(env).expanduser().resolve()
+    droot = dottie_root()
+    if droot is not None:
+        cand = droot / "packages" / "personal-graphify"
+        if cand.exists():
+            return cand.resolve()
     return (Path.home() / "personal-graphify").resolve()
 
 
@@ -113,7 +146,8 @@ def status_payload(cwd: Path | None = None) -> dict[str, Any]:
         "nodes": nodes,
         "edges": edges,
         "hint": (
-            "uv tool install -e ~/personal-graphify"
+            "uv tool install -e ~/personal-graphify "
+            "(dottie monorepo: uv tool install -e <dottie>/packages/personal-graphify)"
             if not (imported or exe)
             else 'scout graphify query "how does Scout connect to Ava?"'
         ),
@@ -126,7 +160,8 @@ def _run_cli(args: Sequence[str], cwd: Path | None = None) -> dict[str, Any]:
     if not exe:
         return {
             "ok": False,
-            "error": "pgraphify not found. Install: uv tool install -e ~/personal-graphify",
+            "error": "pgraphify not found. Install: uv tool install -e ~/personal-graphify "
+            "(dottie monorepo: <dottie>/packages/personal-graphify)",
             "disclaimer": DISCLAIMER,
         }
     proc = subprocess.run(
@@ -160,9 +195,15 @@ def run_build(
     if ecosystem:
         home = Path.home()
         resolved = []
+        droot = dottie_root()
+        if droot is not None:
+            for name in DOTTIE_ECOSYSTEM_ROOTS:
+                p = (droot / name).resolve()
+                if p.exists() and str(p) not in resolved:
+                    resolved.append(str(p))
         for name in DEFAULT_ECOSYSTEM_ROOTS:
             p = (home / name).resolve()
-            if p.exists():
+            if p.exists() and str(p) not in resolved:
                 resolved.append(str(p))
         # Always include the build root first via positional path
         if resolved:
@@ -264,6 +305,7 @@ def sync_to_personal(
         "src": str(src),
         "dest": str(dest),
         "bytes": dest.stat().st_size,
-        "next": "Rebuild personal ecosystem: pgraphify build ~/personal-graphify --roots ~/scout-cli,...",
+        "next": "Rebuild personal ecosystem: scout graphify ecosystem "
+        "(multi-root over standalone ~ checkouts and/or the dottie monorepo)",
         "disclaimer": DISCLAIMER,
     }
