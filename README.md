@@ -87,7 +87,7 @@ Core plugins: `secrets`, `auth`, `tools`, `mcp`, `agent`, `harness`, `system`, `
 
 Development happens in the [`dottie`](https://github.com/jcdavis131/dottie) monorepo at `apps/scout-cli`; issues and changes land there. This repo receives snapshots of that tree and exists so the CLI can be cloned and installed standalone.
 
-Snapshot: dottie@66886a7
+Snapshot: dottie@82c1892
 
 ```bash
 pip install -e ".[dev]"
