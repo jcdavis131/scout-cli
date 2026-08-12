@@ -19,3 +19,10 @@ data/
 .pytest_cache/
 .ruff_cache/
 .scout/
+
+# Defense-in-depth: a cwd-relative fallback in bigbang/plugins/agents/cli.py
+# (_triple_write) used to write these unconditionally on every `scout agents
+# ...` invocation, landing here whenever scout/pytest ran from this checkout.
+# Removed at the write site 2026-08-12; ignored too in case it recurs.
+/bundles/
+/pipeline/

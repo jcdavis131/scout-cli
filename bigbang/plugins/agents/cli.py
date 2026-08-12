@@ -63,8 +63,21 @@ def _triple_write(run_id: str, timeline_rows: list, checkpoint_extra: dict=None)
         Path.home()/ "workspace"/ "dottie"/ "bundles"/ "ultra"/ "runs",
         Path.home()/ "workspace"/ "dottie"/ "apps"/ "ava-factory"/ "bundles"/ "ultra"/ "runs",
         Path.home()/ "workspace"/ "dottie"/ "apps"/ "ava-factory"/ "dottie"/ "pipeline"/ "runs",
-        Path("bundles/ultra/runs"),
-        Path("pipeline/runs"),
+        # NOT `Path("bundles/ultra/runs")` / `Path("pipeline/runs")` (relative to
+        # whatever the CURRENT WORKING DIRECTORY happens to be at invocation time).
+        # Those two used to be here as a "support relative invocation" fallback, and
+        # every `scout agents langchain|deep ...` call -- including this plugin's own
+        # subprocess tests -- writes on EVERY invocation regardless of whether the
+        # home-anchored roots above already exist. Run `scout` (or `pytest`) from
+        # inside a git checkout and it leaves untracked bundles/ and pipeline/
+        # directories in THAT repo. Measured 2026-08-12: running this suite from
+        # /scout-cli left `bundles/ultra/runs/agents-langchain-*` and
+        # `pipeline/runs/agents-*` sitting in the working tree afterwards, and this
+        # is exactly how graphify-out/ (a different plugin, same cwd-relative-write
+        # pattern) ended up committed to this repo's history. The manifest's own
+        # capabilities.filesystem.paths allowlist (manifest.yaml) never named a
+        # relative path either -- these two were writing outside what the plugin
+        # declares it touches.
     ]
     written=[]
     for base in roots:
