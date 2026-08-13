@@ -208,14 +208,24 @@ no longer an "ignore those" list. `addopts = "-ra"` means every skip prints its 
 a check that declines to run cannot be mistaken for one that passed.
 
 A full run takes roughly nine minutes. Rather than quote a pass count that goes stale on
-every commit, here is the same broken environment across the three files that touch the
-MCP surface — the difference between two environments that used to look identical:
+every commit, here are both sides of the same three files that touch the MCP surface —
+the two environments that used to look identical, told apart:
 
 ```bash
 # on an environment that does not match pyproject.toml, this exits 1 -- not 0
 python -m pytest tests/test_hard_deps.py tests/test_mcp_meta.py tests/test_mcp_serve.py
 # 7 failed, 35 passed, 1 skipped   (measured 2026-08-13 on an env with no `mcp` and httpx 0.24.1)
+
+# same three files, environment uv.lock pins; --no-sync measures rather than repairs
+uv run --no-sync python -m pytest tests/test_hard_deps.py tests/test_mcp_meta.py tests/test_mcp_serve.py -q
+# 43 passed                        (exit 0; measured 2026-08-13 in this tree)
 ```
+
+Same 43 cases either way. The skip is worth as much attention as the failures: it is the
+module-level `importorskip` in `tests/test_mcp_serve.py`, and it disappears here not
+because anything was fixed but because `mcp` is present. Under the broken environment that
+one line is the real-SDK server round-trip declining to run, and only the seven named
+failures beside it say so out loud — which is the arrangement this section is describing.
 
 `mcp>=1.28.1` is a *hard* dependency in `pyproject.toml`, but four cases in
 `tests/test_mcp_meta.py` used to guard on `pytest.importorskip("mcp")`. A missing `mcp` and
