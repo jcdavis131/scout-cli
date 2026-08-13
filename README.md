@@ -108,14 +108,26 @@ now build their own layout in `tmp_path` and pin resolution *order*. There is no
 "ignore those" list. `addopts = "-ra"` means every skip prints its reason, so a check that
 declines to run cannot be mistaken for one that passed.
 
-A full run reports **2644 passed, 9 skipped** (9m10s). Read the skip list, because the nine
-are two different things:
+On a complete install a full run reports **2649 passed, 5 skipped** (~9m). Read the skip
+list; four of the five are environmental and expected, and none of them is a check that
+*should* have run.
 
-- **Five are a warning, not a pass.** `tests/test_mcp_serve.py` and four cases in
-  `tests/test_mcp_meta.py` guard on `pytest.importorskip("mcp")` — but `mcp>=1.28.1` is a
-  *hard* dependency in `pyproject.toml`. If those five skip, the install is incomplete and
-  five real checks did not run behind a green summary line. Install `mcp` and re-run before
-  trusting the result. `tests/test_mcp_exit_codes.py` is deliberately *not* guarded that
+That census used to read 2644 passed / 9 skipped, and the extra four were the hazard this
+section had to warn you about in prose: four cases in `tests/test_mcp_meta.py` guarded on
+`pytest.importorskip("mcp")`, but `mcp>=1.28.1` is a *hard* dependency in `pyproject.toml`.
+A missing `mcp` and a passing `mcp` produced the same exit code, so the whole MCP server
+surface could sit out behind a green summary line and you only found out by reading the
+skip reasons. Those four now call `hard_deps.require_mcp()`, which **fails** instead of
+skipping, and `tests/test_hard_deps.py` asserts that every name in `[project].dependencies`
+actually imports — one named failure per missing dependency, not a quieter summary.
+
+`tests/test_mcp_serve.py` keeps `importorskip` on purpose: it guards at *module* level, and
+a `pytest.fail` during import is a collection error that interrupts the entire session —
+a missing `mcp` would run 0 of ~2650 tests instead of failing 5, which is the same
+cannot-run-reads-as-green shape one level up. `test_hard_deps.py` is the loud guard; the
+module-level skip is just how that one file declines.
+
+`tests/test_mcp_exit_codes.py` is deliberately *not* guarded that
   way — it monkeypatches the SDK boundary instead of importing across it, so it is the one
   part of the mcp surface that is still checked when those five sit out. It was written
   after that gap hid a real bug: `mcp list-tools`, `mcp call` and `mcp ns call` printed an

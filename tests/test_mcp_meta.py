@@ -4,6 +4,7 @@ import json
 
 import pytest
 
+import hard_deps
 from bigbang.plugins.mcp import meta
 
 # ---------------------------------------------------------------------------
@@ -130,7 +131,7 @@ def test_aggregate_denied_server_contributes_nothing():
 
 
 def test_build_server_exposes_enabled_proxies_and_status(monkeypatch):
-    pytest.importorskip("mcp")
+    hard_deps.require_mcp()
     import anyio
 
     from bigbang.plugins.mcp import server as srv
@@ -161,7 +162,7 @@ def test_build_server_exposes_enabled_proxies_and_status(monkeypatch):
 
 
 def test_build_server_unknown_namespace_raises(monkeypatch):
-    pytest.importorskip("mcp")
+    hard_deps.require_mcp()
     from bigbang.plugins.mcp import server as srv
 
     monkeypatch.setattr(meta, "load_namespaces", lambda: {})
@@ -170,7 +171,7 @@ def test_build_server_unknown_namespace_raises(monkeypatch):
 
 
 def test_proxy_tool_rechecks_policy_at_call_time(monkeypatch):
-    pytest.importorskip("mcp")
+    hard_deps.require_mcp()
     from bigbang.plugins.mcp import server as srv
 
     # Allowed at build, revoked before the call: the call must be refused.
@@ -190,7 +191,7 @@ def test_proxy_tool_rechecks_policy_at_call_time(monkeypatch):
 
 
 def test_proxy_tool_happy_path_and_bad_json(monkeypatch):
-    pytest.importorskip("mcp")
+    hard_deps.require_mcp()
     from bigbang.plugins.mcp import server as srv
 
     monkeypatch.setattr(

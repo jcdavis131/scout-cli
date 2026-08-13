@@ -12,11 +12,14 @@ listing command whose contract is a *partial* result -- per-server failures come
 an `errors` map alongside whatever the reachable servers returned -- so exit 0 there
 reports what it found, not a call that silently did not happen.
 
-WHY THESE TESTS ARE NOT GUARDED BY `importorskip("mcp")`. The five existing
-`importorskip("mcp")` sites are why this bug survived: `mcp>=1.28.1` is a hard
-dependency in pyproject.toml, so in an environment missing it the whole `mcp` surface
-goes untested and the summary line still says passed. That is the exact shape this
-repo's README skip census calls out. Every test here monkeypatches the SDK boundary
+WHY THESE TESTS ARE NOT GUARDED BY `importorskip("mcp")`. Five `importorskip("mcp")`
+sites are why this bug survived: `mcp>=1.28.1` is a hard dependency in pyproject.toml,
+so in an environment missing it the whole `mcp` surface went untested and the summary
+line still said passed. Four of those five now call `hard_deps.require_mcp()`, which
+FAILS instead of skipping; the fifth (tests/test_mcp_serve.py) guards at module level,
+where a failure would be a collection error that interrupts the whole session, so it
+keeps `importorskip` and tests/test_hard_deps.py carries the loud check for it. Every
+test here still monkeypatches the SDK boundary
 instead of importing across it, so they run identically whether or not `mcp` is
 installed -- and they are the only coverage of the mcp CLI that does.
 """

@@ -5,6 +5,12 @@ import sys
 import anyio
 import pytest
 
+# MODULE level stays `importorskip`, deliberately. `hard_deps.require_mcp()`
+# raises Failed, and a Failed at import time is a COLLECTION error: pytest
+# interrupts the whole session, so a missing mcp would run 0 of ~2600 tests
+# instead of failing 5 — a gate that cannot run, the thing this repo hunts.
+# The loud guard for a missing hard dependency is tests/test_hard_deps.py,
+# which fails one named test while the rest of the suite still reports.
 mcp = pytest.importorskip("mcp")
 
 from mcp import ClientSession, StdioServerParameters
