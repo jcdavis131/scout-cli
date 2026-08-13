@@ -99,18 +99,40 @@ ruff check .
 GOAT audit's own tests) — `testpaths` in `pyproject.toml` pins both roots, so the two
 commands differ only in that one deliberate way.
 
-**The suite is expected to be fully green, so treat any red as a real regression.** It was
-not, for a while: a handful of tests asserted the *developer's machine layout* rather than
-the product — the plugin resolvers for `apps/scout-rtx` and `apps/ava-factory`, which are
-companion trees that do not exist in this standalone mirror, so the resolvers correctly
-fell through to a `$HOME` path that could not exist under the throwaway test HOME. Those
-now build their own layout in `tmp_path` and pin resolution *order*. There is no longer an
-"ignore those" list. `addopts = "-ra"` means every skip prints its reason, so a check that
-declines to run cannot be mistaken for one that passed.
+**On an environment that matches `pyproject.toml` the suite is fully green, so red means
+one of exactly two things — and they are not interchangeable.** Either the code regressed,
+or the environment does not match the manifest. Triage takes under a second:
+
+```bash
+pytest tests/test_hard_deps.py -q
+# exit 0 -> the environment matches the manifest, so a red suite is a real regression
+# exit 1 -> each failure names the dependency that does not match. Fix the environment
+#           (`pip install -e ".[dev]"`) before reading anything else in the run: the rest
+#           of it was exercising dependencies the manifest says are not the ones it was
+#           written against.
+```
+
+In this checkout on 2026-08-13 that is `3 failed, 13 passed` in 0.22s — no `mcp` installed
+at all, and httpx 0.24.1 against a declared `httpx>=0.27`. Those failures are the guard
+working, not a regression, which is precisely why the sentence above is conditional: a
+permanently red gate teaches people to stop reading it just as effectively as a
+permanently green one. The full run on that same environment is red for that reason and
+no other — 7 failed, 0 errors, and all 7 are the environment: these 3 plus the 4 in
+`tests/test_mcp_meta.py` that call `hard_deps.require_mcp()`. Nothing else in the suite
+is red, which is the claim the triage command above exists to let you check in a second
+instead of nine minutes.
+
+Full green is a recent state. A handful of tests asserted the *developer's machine layout*
+rather than the product — the plugin resolvers for `apps/scout-rtx` and `apps/ava-factory`,
+which are companion trees that do not exist in this standalone mirror, so the resolvers
+correctly fell through to a `$HOME` path that could not exist under the throwaway test
+HOME. Those now build their own layout in `tmp_path` and pin resolution *order*. There is
+no longer an "ignore those" list. `addopts = "-ra"` means every skip prints its reason, so
+a check that declines to run cannot be mistaken for one that passed.
 
 A full run takes roughly nine minutes. Rather than quote a pass count that goes stale on
-every commit, here is the thing worth checking, because it is the difference between two
-environments that used to look identical:
+every commit, here is the same broken environment across the three files that touch the
+MCP surface — the difference between two environments that used to look identical:
 
 ```bash
 # on an environment that does not match pyproject.toml, this exits 1 -- not 0
