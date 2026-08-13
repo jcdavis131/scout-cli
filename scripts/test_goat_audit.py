@@ -16,7 +16,25 @@ count, so a dead `_httpx_client` looked used every time `_httpx_client_fallback`
 mentioned, and dead `_load`/`_save` shims in auth looked used on every `_load_auth` call.
 Three genuinely dead functions were hidden that way and are deleted in the same commit.
 
-    python apps/scout-cli/scripts/test_goat_audit.py
+    pytest scripts/test_goat_audit.py -q      # collected with the rest of the suite
+    python scripts/test_goat_audit.py         # standalone, still exits nonzero on failure
+
+WHY THIS FILE IS SHAPED LIKE A PYTEST MODULE AND NOT A SCRIPT. It used to run all of its
+checks at import time and end with a bare module-level `sys.exit(...)`. It is named
+`test_*.py`, so pytest collects it — and a SystemExit raised during COLLECTION is not a
+test failure, it is an INTERNALERROR that aborts the entire session:
+
+    INTERNALERROR> SystemExit: 0
+    no tests ran in 0.24s          # exit code 3
+
+Note the `0`. The audit had PASSED, and passing still took the whole gate down with it —
+`pytest` from the repo root ran ZERO of the ~2500 tests in `tests/` and reported a
+failure whose traceback was 40 lines of `importlib._bootstrap` naming nothing a reader
+could act on. Humans never saw it because README and every doc say `pytest tests/`, which
+skips this directory; only the automated gate ran bare `pytest`. The checks below are
+therefore real test functions, and the only `sys.exit` left is under `__main__`, where
+pytest never looks. `tests/test_collection_is_not_booby_trapped.py` fails loudly if this
+shape ever regresses here or anywhere else in the tree.
 """
 
 from __future__ import annotations
@@ -26,19 +44,13 @@ import importlib.util
 import sys
 from pathlib import Path
 
+import pytest
+
 _HERE = Path(__file__).resolve().parent
 _SPEC = importlib.util.spec_from_file_location("goat_audit", _HERE / "goat_audit.py")
 goat = importlib.util.module_from_spec(_SPEC)
 sys.modules["goat_audit"] = goat
 _SPEC.loader.exec_module(goat)
-
-PASS, FAIL = [], []
-
-
-def check(name, cond, detail=""):
-    (PASS if cond else FAIL).append(name)
-    tail = f"  - {detail}" if detail and not cond else ""
-    print(f"{'PASS' if cond else 'FAIL'}  {name}{tail}")
 
 
 # --- prose must not be counted as code ---------------------------------------------
@@ -53,8 +65,12 @@ PROSE = [
     "# while this is true, it is not code",
     "# TODO",
 ]
-for line in PROSE:
-    check(f"prose not counted: {line.strip()[:52]}", not goat._is_commented_code(line))
+
+
+@pytest.mark.parametrize("line", PROSE, ids=lambda s: s.strip()[:52])
+def test_prose_is_not_counted_as_commented_out_code(line):
+    assert not goat._is_commented_code(line)
+
 
 # --- real commented-out code must still be counted ---------------------------------
 
@@ -67,8 +83,11 @@ CODE = [
     "        # while running:",
     "    # client = httpx.Client()",
 ]
-for line in CODE:
-    check(f"code still counted: {line.strip()[:52]}", goat._is_commented_code(line))
+
+
+@pytest.mark.parametrize("line", CODE, ids=lambda s: s.strip()[:52])
+def test_commented_out_code_is_still_counted(line):
+    assert goat._is_commented_code(line)
 
 
 # --- dead-helper detection ----------------------------------------------------------
@@ -95,51 +114,85 @@ def user_facing(x):
     """Mentions _named_only_in_a_docstring but never calls it."""
     return x
 '''
-dead = goat._dead_helpers(ast.parse(SRC))
 
-check("a decorator-registered entry point is not dead", "_todos_root" not in dead, str(dead))
-check("a helper called by the entry point is not dead", "_scan" not in dead, str(dead))
-check("a helper whose name CONTAINS another is not dead", "_scan_markers" not in dead, str(dead))
-check("a genuinely unused helper IS dead", "_genuinely_dead" in dead, str(dead))
-check(
-    "a name mentioned only in a docstring does not count as a use",
-    "_named_only_in_a_docstring" in dead,
-    str(dead),
-)
-check(
-    "public (non-underscore) functions are out of scope",
-    "user_facing" not in dead,
-    str(dead),
-)
+
+@pytest.fixture(scope="module")
+def dead():
+    return goat._dead_helpers(ast.parse(SRC))
+
+
+def test_a_decorator_registered_entry_point_is_not_dead(dead):
+    assert "_todos_root" not in dead, dead
+
+
+def test_a_helper_called_by_the_entry_point_is_not_dead(dead):
+    assert "_scan" not in dead, dead
+
+
+def test_a_helper_whose_name_contains_another_is_not_dead(dead):
+    assert "_scan_markers" not in dead, dead
+
+
+def test_a_genuinely_unused_helper_is_dead(dead):
+    assert "_genuinely_dead" in dead, dead
+
+
+def test_a_name_mentioned_only_in_a_docstring_does_not_count_as_a_use(dead):
+    assert "_named_only_in_a_docstring" in dead, dead
+
+
+def test_public_non_underscore_functions_are_out_of_scope(dead):
+    assert "user_facing" not in dead, dead
+
 
 # The old rule, run on the same source, to pin WHY this changed rather than assert it.
-old = [
-    n.name
-    for n in ast.parse(SRC).body
-    if isinstance(n, ast.FunctionDef) and n.name.startswith("_") and SRC.count(n.name) <= 1
-]
-check(
-    "the old substring rule really did flag the entry point",
-    "_todos_root" in old,
-    f"old={old} — if this stops being true the docstring above is stale",
-)
-check(
-    "the old substring rule really did miss the docstring-only helper",
-    "_named_only_in_a_docstring" not in old,
-    f"old={old}",
-)
+
+@pytest.fixture(scope="module")
+def old_substring_rule():
+    return [
+        n.name
+        for n in ast.parse(SRC).body
+        if isinstance(n, ast.FunctionDef)
+        and n.name.startswith("_")
+        and SRC.count(n.name) <= 1
+    ]
+
+
+def test_the_old_substring_rule_really_did_flag_the_entry_point(old_substring_rule):
+    assert "_todos_root" in old_substring_rule, (
+        f"old={old_substring_rule} — if this stops being true the docstring above is stale"
+    )
+
+
+def test_the_old_substring_rule_really_did_miss_the_docstring_only_helper(
+    old_substring_rule,
+):
+    assert "_named_only_in_a_docstring" not in old_substring_rule, old_substring_rule
+
 
 # --- the audit still runs end to end ------------------------------------------------
 
-report = goat.audit_plugin(_HERE.parent / "bigbang" / "plugins" / "todos")
-check("audit_plugin returns a scored report", isinstance(report, dict) and "mean" in report,
-      str(report)[:200])
-check(
-    "todos no longer loses points to prose comments",
-    not any("commented-out" in f for f in report.get("findings", [])),
-    str(report.get("findings")),
-)
 
-print()
-print(f"{len(PASS)} passed, {len(FAIL)} failed")
-sys.exit(1 if FAIL else 0)
+@pytest.fixture(scope="module")
+def todos_report():
+    # `audit_plugin` takes a plugin NAME and joins it onto `goat.PLUGINS` itself. This
+    # used to pass a full absolute path, which only worked because `PLUGINS / <abs>`
+    # discards the left side in pathlib — true today, and silently wrong the moment
+    # `name` is used for anything but that join.
+    return goat.audit_plugin("todos")
+
+
+def test_audit_plugin_returns_a_scored_report(todos_report):
+    assert isinstance(todos_report, dict) and "mean" in todos_report, str(todos_report)[:200]
+
+
+def test_todos_no_longer_loses_points_to_prose_comments(todos_report):
+    findings = todos_report.get("findings", [])
+    assert not any("commented-out" in f for f in findings), str(findings)
+
+
+if __name__ == "__main__":
+    # `raise SystemExit(pytest.main(...))` and not a bare `pytest.main(...)`: the latter
+    # RETURNS the status code and the process would exit 0 no matter what failed, which
+    # is the exact exit-code laundering this file exists to catch elsewhere.
+    raise SystemExit(pytest.main([__file__, "-q"]))

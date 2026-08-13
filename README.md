@@ -95,6 +95,40 @@ pytest tests/
 ruff check .
 ```
 
+`pytest tests/` is the suite. Bare `pytest` also picks up `scripts/test_goat_audit.py` (the
+GOAT audit's own tests) — `testpaths` in `pyproject.toml` pins both roots, so the two
+commands differ only in that one deliberate way.
+
+**The suite is expected to be fully green, so treat any red as a real regression.** It was
+not, for a while: a handful of tests asserted the *developer's machine layout* rather than
+the product — the plugin resolvers for `apps/scout-rtx` and `apps/ava-factory`, which are
+companion trees that do not exist in this standalone mirror, so the resolvers correctly
+fell through to a `$HOME` path that could not exist under the throwaway test HOME. Those
+now build their own layout in `tmp_path` and pin resolution *order*. There is no longer an
+"ignore those" list. `addopts = "-ra"` means every skip prints its reason, so a check that
+declines to run cannot be mistaken for one that passed.
+
+A full run reports **2644 passed, 9 skipped** (9m10s). Read the skip list, because the nine
+are two different things:
+
+- **Five are a warning, not a pass.** `tests/test_mcp_serve.py` and four cases in
+  `tests/test_mcp_meta.py` guard on `pytest.importorskip("mcp")` — but `mcp>=1.28.1` is a
+  *hard* dependency in `pyproject.toml`. If those five skip, the install is incomplete and
+  five real checks did not run behind a green summary line. Install `mcp` and re-run before
+  trusting the result. `tests/test_mcp_exit_codes.py` is deliberately *not* guarded that
+  way — it monkeypatches the SDK boundary instead of importing across it, so it is the one
+  part of the mcp surface that is still checked when those five sit out. It was written
+  after that gap hid a real bug: `mcp list-tools`, `mcp call` and `mcp ns call` printed an
+  `{"error": …}` object and exited **0**, so `bb mcp call srv deploy && ship` ran `ship`
+  against a tool that never executed. All three now exit 1, matching `mcp serve`. `mcp ns
+  tools` still exits 0 with a partial listing — per-server failures come back in an
+  `errors` map, which is that command's contract, not a laundered exit code.
+- **Four are environmental and expected**: the `bundles/cli.sh` wrapper check (needs
+  `SCOUT_BUNDLES_CLI_SH` pointed at a real wrapper; that artifact is not part of this
+  checkout), `acne.tools` and `skills.state_store` (companion `dottie` workspace members,
+  absent from this standalone mirror), and one POSIX-only permission-bit test that cannot
+  express `0600` on Windows.
+
 CI runs a non-blocking `ruff check` (`.github/workflows/lint.yml`); lint findings are fixed in `dottie`, not here, since snapshots overwrite this tree. Docs: [architecture](docs/ARCHITECTURE.md), [security model](docs/SECURITY.md), [extending](docs/EXTENDING.md). The RTX offload companion repo is [`scout-rtx`](https://github.com/jcdavis131/scout-rtx), wired up as described in [INTEGRATION.md](INTEGRATION.md).
 
 ## Ecosystem

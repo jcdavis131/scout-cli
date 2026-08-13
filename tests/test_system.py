@@ -48,6 +48,13 @@ def checks(capsys):
     asserting the wrong thing. The files are created first so the assertions below are
     about MODE and REQUIREDNESS, which is what actually changed, rather than about
     existence.
+
+    The HOME from conftest.py is SESSION-WIDE, so these three writes are not scratch —
+    they land in state every later module reads. Unrestored, `registry.json == "{}"` cost
+    23 errors in test_tools.py (test_system sorts earlier): `{}` is valid JSON and an
+    object, so atomic_json.read_json accepts it happily and the damage surfaced far away
+    as a bare `KeyError: 'tools'` out of registry._load(). 23 errors with no visible cause
+    is why "pytest: fail" stopped being read at all. Snapshot and put them back.
     """
     import json
     from pathlib import Path
@@ -56,16 +63,27 @@ def checks(capsys):
 
     share = Path.home() / ".local" / "share" / "bigbang"
     share.mkdir(parents=True, exist_ok=True)
-    for name in ("secrets.json", "audit.jsonl", "registry.json"):
+    names = ("secrets.json", "audit.jsonl", "registry.json")
+    # None means "was absent" — restoring it as "{}" would be the same bug, quieter.
+    before = {
+        n: (share / n).read_text(encoding="utf-8") if (share / n).exists() else None
+        for n in names
+    }
+    for name in names:
         (share / name).write_text("{}", encoding="utf-8")
 
     set_json_mode(True)
     try:
         sc.doctor()
         payload = json.loads(capsys.readouterr().out)
+        return (payload.get("data") or payload)["checks"]
     finally:
         set_json_mode(False)
-    return (payload.get("data") or payload)["checks"]
+        for name, original in before.items():
+            if original is None:
+                (share / name).unlink(missing_ok=True)
+            else:
+                (share / name).write_text(original, encoding="utf-8")
 
 
 def test_doctor_has_no_permanently_failing_check(checks):

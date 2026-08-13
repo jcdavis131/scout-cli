@@ -25,16 +25,48 @@ import pytest
 from bigbang.plugins.ava import cli as ac
 
 
-def test_resolves_to_the_checkout_this_plugin_lives_in():
-    """The defect. The canonical factory sits in the same repo as this file."""
+def _isolate(monkeypatch, home, plugin_file):
+    """Cut both machine dependencies the resolver has: $HOME and where this file lives.
+
+    `apps/ava-factory` is a companion tree, absent from this standalone mirror, so the
+    resolver correctly falls through to ~/workspace/dottie/apps/ava-factory — which cannot
+    exist under the throwaway HOME. Asserting `.exists()` on that was asserting the
+    developer's box. USERPROFILE matters as much as HOME: `Path.home()` reads it on Windows.
+    And the session HOME is SHARED — test_agents_langchain's subprocesses mkdir
+    ~/workspace/dottie/apps/ava-factory into it, which is why this module used to report
+    2 failed alone and 0 failed in the full suite. Passing meant nothing either way.
+    """
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))
+    monkeypatch.delenv("DOTTIE_ROOT", raising=False)
+    monkeypatch.setattr(ac, "__file__", str(plugin_file))
+
+
+def test_the_containing_checkout_outranks_dottie_root_and_the_home_layout(
+    tmp_path, monkeypatch
+):
+    """The defect, hermetically: all three candidates exist and the local one must win.
+
+    `parents[5]` as "the repo root" was only true inside the dottie monorepo; in this
+    mirror it walks five levels past the checkout. Build the layout instead of counting.
+    """
+    checkout = tmp_path / "checkout"
+    home = tmp_path / "home"
+    mine = checkout / "apps" / "ava-factory"
+    for d in (
+        mine,
+        tmp_path / "dottie" / "apps" / "ava-factory",
+        home / "workspace" / "dottie" / "apps" / "ava-factory",
+        home / "workspace" / "ava-agi-factory-v6-4",
+    ):
+        d.mkdir(parents=True, exist_ok=True)
+
+    _isolate(monkeypatch, home, checkout / "bigbang" / "plugins" / "ava" / "cli.py")
+    monkeypatch.setenv("DOTTIE_ROOT", str(tmp_path / "dottie"))
+
     got = ac._resolve_factory_root()
-    assert got.exists(), got
+    assert got == mine, got
     assert got.name == "ava-factory", got
-    # It must be THIS repo's copy, not a sibling checkout that happens to exist.
-    repo = Path(ac.__file__).resolve()
-    assert str(got).lower().startswith(str(repo.parents[5]).lower()), (
-        f"resolved outside this checkout: {got} (repo root {repo.parents[5]})"
-    )
 
 
 def test_does_not_pick_the_superseded_standalone_tree():
@@ -67,10 +99,20 @@ def test_dottie_root_is_honoured_when_it_points_at_a_real_tree(tmp_path, monkeyp
 
 
 def test_a_nonexistent_dottie_root_falls_through(tmp_path, monkeypatch):
-    """A DOTTIE_ROOT pointing nowhere must not be returned unchecked."""
+    """A DOTTIE_ROOT pointing nowhere must not be returned unchecked.
+
+    Falls through to a REAL home layout built here, so this pins "the bad override is
+    skipped AND the next candidate wins" rather than "something on this disk exists".
+    """
+    home = tmp_path / "home"
+    documented = home / "workspace" / "dottie" / "apps" / "ava-factory"
+    documented.mkdir(parents=True)
+
+    _isolate(monkeypatch, home, tmp_path / "bare" / "cli.py")
     monkeypatch.setenv("DOTTIE_ROOT", str(tmp_path / "does-not-exist"))
+
     got = ac._resolve_factory_root()
-    assert got.exists(), got
+    assert got == documented, got
     assert "does-not-exist" not in str(got)
 
 
