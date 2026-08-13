@@ -18,16 +18,30 @@ and the comment there says so explicitly: "mcp is a hard dependency above").
 So a missing `mcp` means the ENVIRONMENT is broken, not that the test is
 inapplicable — and a broken environment should be loud.
 
-`declared_runtime_dependencies()` reads that list rather than restating it, so
+`declared_runtime_requirements()` reads that list rather than restating it, so
 this guard cannot drift out of sync with the manifest it is guarding.
+
+WHY THE VERSION IS CHECKED TOO. `import mcp` succeeding is not the same claim as
+"this environment matches the manifest". The manifest declares `httpx>=0.27`; an
+environment carrying httpx 0.24.1 imports it fine, so an import-only guard calls
+that clean — the same one-bit-too-coarse mistake as skip-vs-fail, one level in.
+A too-old dependency is a broken environment for the same reason a missing one
+is, so `require_declared_version()` fails on it by name.
 """
 
 from __future__ import annotations
 
 import re
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as installed_version
 from pathlib import Path
 
+# `packaging` is a hard install dependency of pytest itself, so it is present
+# wherever this file can run at all. Parsing specifiers by hand would reproduce
+# the comparison bugs this check exists to catch.
 import pytest
+from packaging.specifiers import InvalidSpecifier, SpecifierSet
+from packaging.version import InvalidVersion, Version
 
 PYPROJECT = Path(__file__).resolve().parent.parent / "pyproject.toml"
 
@@ -38,16 +52,20 @@ IMPORT_NAME = {"pyyaml": "yaml"}
 _REQUIREMENT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*")
 
 
-def declared_runtime_dependencies() -> list[str]:
-    """The `[project].dependencies` names, lowercased, in manifest order.
+def declared_runtime_requirements() -> list[tuple[str, str]]:
+    """`[project].dependencies` as (name, version specifier) pairs, in manifest order.
 
     Parsed from text on purpose: `tomllib` is 3.11+ and this project supports
     3.10 (pyproject.toml:6), so a tomllib import would make the guard itself
     unavailable on the oldest interpreter it is meant to protect.
+
+    The specifier is whatever trails the name (`">=0.27"`), or `""` when the
+    manifest pins nothing — which `SpecifierSet` treats as "any version", so an
+    unpinned dependency is checked for presence only.
     """
     lines = PYPROJECT.read_text(encoding="utf-8").splitlines()
     first = next(i for i, ln in enumerate(lines) if ln.strip() == "dependencies = [")
-    names = []
+    reqs = []
     # Comment-strip BEFORE looking for the closing bracket: the comment above
     # `typer>=0.12` contains the literal `typer[all]`, so scanning the raw text
     # for the next `]` ends the list inside a comment and finds nothing.
@@ -58,12 +76,24 @@ def declared_runtime_dependencies() -> list[str]:
         ln = ln.strip(",").strip()
         if not (len(ln) > 2 and ln[0] in "\"'" and ln[-1] == ln[0]):
             continue
-        m = _REQUIREMENT.match(ln[1:-1].strip())
-        if m:
-            names.append(m.group(0).lower())
-    if not names:  # a parse that finds nothing must not read as "nothing declared"
+        req = ln[1:-1].strip()
+        m = _REQUIREMENT.match(req)
+        if not m:
+            continue
+        # Drop extras (`typer[all]>=0.12`) and environment markers (`; python_version<"3.11"`)
+        # so what is left is the bare version specifier.
+        spec = req[m.end() :].split(";", 1)[0].strip()
+        if spec.startswith("["):
+            spec = spec.split("]", 1)[-1].strip()
+        reqs.append((m.group(0).lower(), spec))
+    if not reqs:  # a parse that finds nothing must not read as "nothing declared"
         raise AssertionError(f"parsed zero dependencies out of {PYPROJECT}")
-    return names
+    return reqs
+
+
+def declared_runtime_dependencies() -> list[str]:
+    """Just the names from `declared_runtime_requirements()`, in manifest order."""
+    return [name for name, _ in declared_runtime_requirements()]
 
 
 def require(dist: str) -> object:
@@ -88,3 +118,48 @@ def require(dist: str) -> object:
 def require_mcp() -> object:
     """Drop-in for `pytest.importorskip("mcp")` that fails loudly instead."""
     return require("mcp")
+
+
+def require_declared_version(dist: str, spec: str) -> str:
+    """Check the INSTALLED version of `dist` against the manifest's `spec`, or FAIL.
+
+    Deliberately separate from `require()`: call sites there want the module
+    object and only care that the import worked, while this is a statement about
+    the environment as a whole. Keeping them apart also means a version drift
+    fails under its own test name instead of re-flagging every import site.
+
+    Returns the installed version string so a caller can report it.
+    """
+    try:
+        found = installed_version(dist)
+    except PackageNotFoundError:
+        pytest.fail(
+            f"{dist!r} is declared in [project].dependencies of {PYPROJECT.name} "
+            f"but no installed distribution metadata was found for it, so its "
+            f"declared version ({spec or 'any'}) cannot be checked. An unverifiable "
+            f"constraint must not read as a satisfied one. Install the project "
+            f"(`pip install -e \".[dev]\"`) and re-run.",
+            pytrace=False,
+        )
+    if not spec:
+        return found
+    try:
+        satisfied = Version(found) in SpecifierSet(spec)
+    except (InvalidVersion, InvalidSpecifier) as e:
+        # Unparseable either way means the constraint was not checked. Say so
+        # rather than letting the exception be mistaken for an unrelated error.
+        pytest.fail(
+            f"cannot compare installed {dist} {found!r} against declared {spec!r}: {e}. "
+            f"An uncheckable constraint must not read as a satisfied one.",
+            pytrace=False,
+        )
+    if not satisfied:
+        pytest.fail(
+            f"{dist} {found} is installed but {PYPROJECT.name} declares {dist}{spec}. "
+            f"`import {IMPORT_NAME.get(dist.lower(), dist)}` still succeeds, which is "
+            f"why this is checked separately — an import-only guard reports a too-old "
+            f"dependency as a clean environment. Install the project "
+            f"(`pip install -e \".[dev]\"`) and re-run.",
+            pytrace=False,
+        )
+    return found

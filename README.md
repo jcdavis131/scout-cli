@@ -113,9 +113,9 @@ every commit, here is the thing worth checking, because it is the difference bet
 environments that used to look identical:
 
 ```bash
-# on an install missing `mcp`, this exits 1 -- not 0
+# on an environment that does not match pyproject.toml, this exits 1 -- not 0
 pytest tests/test_hard_deps.py tests/test_mcp_meta.py tests/test_mcp_serve.py
-# 5 failed, 16 passed, 1 skipped
+# 7 failed, 23 passed, 1 skipped   (measured 2026-08-13 on an env with no `mcp` and httpx 0.24.1)
 ```
 
 `mcp>=1.28.1` is a *hard* dependency in `pyproject.toml`, but four cases in
@@ -124,8 +124,20 @@ a working `mcp` therefore produced the same exit code: the whole MCP server surf
 sit out behind a green summary line, and you only found out by reading the skip reasons.
 Those four now call `hard_deps.require_mcp()`, which **fails** instead of skipping, and
 `tests/test_hard_deps.py` checks every name in `[project].dependencies` directly — one
-named failure per missing dependency, not a quieter summary. Those five failures are the
-guard working; `pip install -e ".[dev]"` turns them into passes.
+named failure per missing dependency, not a quieter summary. Those failures are the guard
+working; `pip install -e ".[dev]"` turns them into passes.
+
+`test_hard_deps.py` checks the declared *version* separately from the import, because
+"it imports" and "it matches the manifest" are two different claims and only the first was
+being made. The environment above carries httpx 0.24.1 against a declared `httpx>=0.27`:
+`import httpx` succeeds, so an import-only guard called that environment clean. It is not
+clean — it is one where every httpx-dependent path, including the MCP client, is exercised
+against a version the manifest says is unsupported. That mismatch is now its own named
+failure (`test_declared_dependency_satisfies_specifier[httpx->=0.27]`) rather than silence.
+Whether the right fix is upgrading httpx or relaxing the pin is a maintainer decision; the
+guard's job is only to stop the two states from looking identical. A dependency whose
+distribution metadata is missing entirely fails the same way, since a constraint that could
+not be checked must not report as one that was.
 
 `tests/test_mcp_serve.py` keeps `importorskip` on purpose. It guards at *module* level, and
 a `pytest.fail` during import is a collection error that aborts the whole session — a
