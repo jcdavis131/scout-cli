@@ -30,11 +30,14 @@ for the whole session). Measured 2026-08-13 with a one-line conftest in a scratc
     sys.exit(0)                 0        0 bytes            0
     sys.exit(1)                 1        0 bytes            0
     raise RuntimeError(...)     4    traceback naming it    0
+    pytest.exit(reason)         4    names file + reason    0
 
 The SystemExit rows are worse than the exit-3 case above, not merely equal to it: pytest
 never gets to report, so the process adopts the exit code and prints NOTHING. A
 `sys.exit(0)` in a conftest is a whole suite exiting green, silently, having run zero
-tests. That is why this guard walks conftests too.
+tests. That is why this guard walks conftests too. The last row is the escape hatch this
+guard's failure message hands conftests instead: the same abort, but pytest recognises
+its own `Exit` and prints the file and the reason rather than vanishing.
 
 WHY AST AND NOT A SUBPROCESS. Actually running `pytest --collect-only` from here would
 test the real invariant more directly, but it re-imports every module in the suite and
@@ -167,19 +170,34 @@ def test_no_collected_file_can_exit_the_interpreter_at_import_time(path: Path):
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     hits = _import_time_exits(tree)
     # Both shapes are measured in the module docstring; name the one that applies, since
-    # the reader's next move is to recognise the symptom they are staring at.
-    consequence = (
-        "pytest imports conftest.py BEFORE any test module, and a SystemExit there "
-        "propagates out of pytest itself — measured exit 0 with zero bytes of output "
-        "and zero tests run, i.e. the whole suite reporting success in silence"
-        if path.name == "conftest.py"
-        else "pytest imports this file during COLLECTION, so that exit raises "
-        "SystemExit before any test runs and turns the entire session into "
-        "`INTERNALERROR ... no tests ran` (exit 3) — including when the exit status is 0"
-    )
+    # the reader's next move is to recognise the symptom they are staring at. The FIX
+    # differs too, and this used to hand conftests the test-module one — see below.
+    if path.name == "conftest.py":
+        consequence = (
+            "pytest imports conftest.py BEFORE any test module, and a SystemExit there "
+            "propagates out of pytest itself — measured exit 0 with zero bytes of output "
+            "and zero tests run, i.e. the whole suite reporting success in silence"
+        )
+        # Not the test-module fix. pytest imports conftest.py as a plugin and never as
+        # `__main__`, and `python conftest.py` is not a thing anyone runs, so a main
+        # guard here would silence the abort while promising a direct-run mode that does
+        # not exist — dead code wearing a fix's clothes.
+        fix = (
+            "Delete the exit. A `__main__` guard is not the fix here: pytest never "
+            "imports conftest.py as `__main__`, so the branch would just be dead code. "
+            "If collection genuinely must stop, call `pytest.exit(reason)` — measured "
+            "exit 4, and pytest prints the file and the reason instead of vanishing."
+        )
+    else:
+        consequence = (
+            "pytest imports this file during COLLECTION, so that exit raises "
+            "SystemExit before any test runs and turns the entire session into "
+            "`INTERNALERROR ... no tests ran` (exit 3) — including when the exit "
+            "status is 0"
+        )
+        fix = 'Move it under `if __name__ == "__main__":`.'
     assert not hits, (
         f"{path.relative_to(REPO).as_posix()} calls "
         + ", ".join(f"{name} at line {line}" for line, name in hits)
-        + f" at module level. {consequence}. "
-        'Move it under `if __name__ == "__main__":`.'
+        + f" at module level. {consequence}. {fix}"
     )
