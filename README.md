@@ -108,38 +108,45 @@ now build their own layout in `tmp_path` and pin resolution *order*. There is no
 "ignore those" list. `addopts = "-ra"` means every skip prints its reason, so a check that
 declines to run cannot be mistaken for one that passed.
 
-On a complete install a full run reports **2649 passed, 5 skipped** (~9m). Read the skip
-list; four of the five are environmental and expected, and none of them is a check that
-*should* have run.
+A full run takes roughly nine minutes. Rather than quote a pass count that goes stale on
+every commit, here is the thing worth checking, because it is the difference between two
+environments that used to look identical:
 
-That census used to read 2644 passed / 9 skipped, and the extra four were the hazard this
-section had to warn you about in prose: four cases in `tests/test_mcp_meta.py` guarded on
-`pytest.importorskip("mcp")`, but `mcp>=1.28.1` is a *hard* dependency in `pyproject.toml`.
-A missing `mcp` and a passing `mcp` produced the same exit code, so the whole MCP server
-surface could sit out behind a green summary line and you only found out by reading the
-skip reasons. Those four now call `hard_deps.require_mcp()`, which **fails** instead of
-skipping, and `tests/test_hard_deps.py` asserts that every name in `[project].dependencies`
-actually imports — one named failure per missing dependency, not a quieter summary.
+```bash
+# on an install missing `mcp`, this exits 1 -- not 0
+pytest tests/test_hard_deps.py tests/test_mcp_meta.py tests/test_mcp_serve.py
+# 5 failed, 16 passed, 1 skipped
+```
 
-`tests/test_mcp_serve.py` keeps `importorskip` on purpose: it guards at *module* level, and
-a `pytest.fail` during import is a collection error that interrupts the entire session —
-a missing `mcp` would run 0 of ~2650 tests instead of failing 5, which is the same
-cannot-run-reads-as-green shape one level up. `test_hard_deps.py` is the loud guard; the
-module-level skip is just how that one file declines.
+`mcp>=1.28.1` is a *hard* dependency in `pyproject.toml`, but four cases in
+`tests/test_mcp_meta.py` used to guard on `pytest.importorskip("mcp")`. A missing `mcp` and
+a working `mcp` therefore produced the same exit code: the whole MCP server surface could
+sit out behind a green summary line, and you only found out by reading the skip reasons.
+Those four now call `hard_deps.require_mcp()`, which **fails** instead of skipping, and
+`tests/test_hard_deps.py` checks every name in `[project].dependencies` directly — one
+named failure per missing dependency, not a quieter summary. Those five failures are the
+guard working; `pip install -e ".[dev]"` turns them into passes.
 
-`tests/test_mcp_exit_codes.py` is deliberately *not* guarded that
-  way — it monkeypatches the SDK boundary instead of importing across it, so it is the one
-  part of the mcp surface that is still checked when those five sit out. It was written
-  after that gap hid a real bug: `mcp list-tools`, `mcp call` and `mcp ns call` printed an
-  `{"error": …}` object and exited **0**, so `bb mcp call srv deploy && ship` ran `ship`
-  against a tool that never executed. All three now exit 1, matching `mcp serve`. `mcp ns
-  tools` still exits 0 with a partial listing — per-server failures come back in an
-  `errors` map, which is that command's contract, not a laundered exit code.
-- **Four are environmental and expected**: the `bundles/cli.sh` wrapper check (needs
-  `SCOUT_BUNDLES_CLI_SH` pointed at a real wrapper; that artifact is not part of this
-  checkout), `acne.tools` and `skills.state_store` (companion `dottie` workspace members,
-  absent from this standalone mirror), and one POSIX-only permission-bit test that cannot
-  express `0600` on Windows.
+`tests/test_mcp_serve.py` keeps `importorskip` on purpose. It guards at *module* level, and
+a `pytest.fail` during import is a collection error that aborts the whole session — a
+missing `mcp` would run 0 of ~2650 tests instead of failing 5, which is the same
+cannot-run-reads-as-green shape one level up. `test_hard_deps.py` is the loud guard; that
+module-level skip is just how one file declines.
+
+`tests/test_mcp_exit_codes.py` is deliberately not guarded either way — it monkeypatches
+the SDK boundary instead of importing across it, so it is the one part of the mcp surface
+still checked when `mcp` is absent. It was written after that gap hid a real bug: `mcp
+list-tools`, `mcp call` and `mcp ns call` printed an `{"error": …}` object and exited
+**0**, so `bb mcp call srv deploy && ship` ran `ship` against a tool that never executed.
+All three now exit 1, matching `mcp serve`. `mcp ns tools` still exits 0 with a partial
+listing — per-server failures come back in an `errors` map, which is that command's
+contract, not a laundered exit code.
+
+The remaining skips are environmental, and none is a check that *should* have run: the
+`bundles/cli.sh` wrapper check (needs `SCOUT_BUNDLES_CLI_SH` pointed at a real wrapper;
+that artifact is not part of this checkout), `acne.tools` and `skills.state_store`
+(companion `dottie` workspace members, absent from this standalone mirror), and one
+POSIX-only permission-bit test that cannot express `0600` on Windows.
 
 CI runs a non-blocking `ruff check` (`.github/workflows/lint.yml`); lint findings are fixed in `dottie`, not here, since snapshots overwrite this tree. Docs: [architecture](docs/ARCHITECTURE.md), [security model](docs/SECURITY.md), [extending](docs/EXTENDING.md). The RTX offload companion repo is [`scout-rtx`](https://github.com/jcdavis131/scout-rtx), wired up as described in [INTEGRATION.md](INTEGRATION.md).
 
