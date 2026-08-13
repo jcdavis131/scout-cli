@@ -31,12 +31,14 @@ Note the `0`. The audit had PASSED, and passing still took the whole gate down w
 `pytest` from the repo root ran ZERO of the ~2500 tests in `tests/` and reported a
 failure whose traceback was 40 lines of `importlib._bootstrap` naming nothing a reader
 could act on. Humans never saw it because README and every doc said `pytest tests/`, which
-skips this directory; only the automated gate ran bare `pytest`. Those docs now say
-`python -m pytest -q` with no path, which collects both `testpaths` roots, so the command
-a human types reaches this directory too. The checks below are
-therefore real test functions, and the only `sys.exit` left is under `__main__`, where
-pytest never looks. `tests/test_collection_is_not_booby_trapped.py` fails loudly if this
-shape ever regresses here or anywhere else in the tree.
+skips this directory; only the automated gate ran bare `pytest`. The three docs under
+`docs/` now say `python -m pytest -q` with no path, which collects both `testpaths` roots,
+so the command those docs teach reaches this directory too; README still teaches the
+uv-pinned `uv run pytest tests/` and names the one deliberate way a bare run differs
+instead. The checks below are therefore real test functions, and the only `sys.exit` left
+is under `__main__`, where pytest never looks.
+`tests/test_collection_is_not_booby_trapped.py` fails loudly if this shape ever regresses
+here or anywhere else in the tree.
 """
 
 from __future__ import annotations
