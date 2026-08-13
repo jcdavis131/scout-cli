@@ -30,7 +30,15 @@ Usage:
   python scripts/goat_audit.py --plugin sitemap    # one plugin
   python scripts/goat_audit.py --json              # machine-readable
   python scripts/goat_audit.py --baseline          # write .goat_baseline.json
-  python scripts/goat_audit.py --check             # exit 1 only on regressions
+  python scripts/goat_audit.py --check             # exit 1 on regressions, 2 if it cannot run
+
+Exit codes (--check):
+  0  the comparison RAN and every audited plugin held its baseline
+  1  the comparison ran and found a regression / a below-bar new plugin
+  2  the comparison COULD NOT RUN — no baseline, no plugins, a name that does
+     not exist. Never 0: a check with nothing to compare against reported
+     "no regressions vs baseline" three different ways, which is the same
+     lie as a passing gate that never executed. See _load_baseline().
 """
 from __future__ import annotations
 
@@ -347,19 +355,88 @@ def discover() -> list[str]:
                   if p.is_dir() and not p.name.startswith("__") and (p / "cli.py").exists())
 
 
+class GateCannotRun(RuntimeError):
+    """The audit could not be performed. Distinct from "the audit found nothing"."""
+
+
+def _load_baseline() -> dict:
+    """The accepted baseline, or raise saying why and how to fix it.
+
+    THE BUG THIS EXISTS FOR. `--check` used to read the baseline as
+    `json.loads(...) if BASELINE.exists() else {}`. With `{}` every plugin
+    fails the `r["plugin"] in base` guard, so the regression list is empty, so
+    rc stays 0, so the run prints "no regressions vs baseline" — a gate that
+    could not run, reporting green. Delete .goat_baseline.json and the audit
+    passes forever, loudly claiming to have compared 63 plugins against
+    nothing. An empty or non-object baseline file is the same hazard with an
+    extra step, so both are refused here rather than silently accepted.
+    """
+    if not BASELINE.exists():
+        raise GateCannotRun(
+            f"--check has no baseline to compare against: {BASELINE} does not exist. "
+            f"This is NOT 'no regressions'. Run `python {Path(__file__).name} --baseline` "
+            f"to accept today's scores, then commit the file."
+        )
+    try:
+        data = json.loads(BASELINE.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as e:
+        raise GateCannotRun(f"baseline {BASELINE} is unreadable: {type(e).__name__}: {e}")
+    if not isinstance(data, dict) or not data:
+        raise GateCannotRun(
+            f"baseline {BASELINE} carries no plugin scores (parsed a "
+            f"{type(data).__name__} of length {len(data) if hasattr(data, '__len__') else '?'}). "
+            f"Re-run --baseline; comparing against it would pass vacuously."
+        )
+    return data
+
+
+def _resolve_requested(explicit: list[str] | None) -> list[str]:
+    """Plugin names to audit, or raise if a name the caller TYPED is not there.
+
+    A typo'd `--plugin sitemapp` scores a phantom 0.0 that is in no baseline,
+    so `--check` compares nothing and exits 0. A name that does not exist on
+    disk is a broken invocation, not a finding. A directory that exists but
+    has no cli.py stays a finding — that is the INCOMPLETE path in
+    audit_plugin(), and it deliberately scores 0 instead of erroring.
+    """
+    if not explicit:
+        return discover()
+    missing = [n for n in explicit if not (PLUGINS / n).is_dir()]
+    if missing:
+        raise GateCannotRun(
+            f"--plugin named {', '.join(repr(n) for n in missing)} — no such "
+            f"director{'y' if len(missing) == 1 else 'ies'} under {PLUGINS}. Nothing was "
+            f"audited; exiting rather than scoring a phantom 0.0 that no baseline can "
+            f"contradict."
+        )
+    return list(explicit)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="Automated Carmack/Bellard GOAT audit of scout-cli plugins.")
     ap.add_argument("--plugin", action="append", help="audit only this plugin (repeatable)")
     ap.add_argument("--json", action="store_true", help="machine-readable output")
     ap.add_argument("--baseline", action="store_true", help="write the current state as the accepted baseline")
-    ap.add_argument("--check", action="store_true", help="exit 1 only if a plugin REGRESSED vs the baseline")
+    ap.add_argument("--check", action="store_true",
+                    help="exit 1 if a plugin REGRESSED vs the baseline; 2 if the comparison could not run")
     ap.add_argument("--run-tests", action="store_true",
                     help="EXECUTE each plugin's suite; D4 scores 0 if it fails (slow, ~45-90s each)")
     ap.add_argument("--min-mean", type=float, default=None,
                     help="also fail if any audited plugin's mean is below this (new builds only)")
     args = ap.parse_args()
 
-    names = args.plugin or discover()
+    try:
+        names = _resolve_requested(args.plugin)
+        if not names:
+            raise GateCannotRun(
+                f"audited ZERO plugins: no <name>/cli.py under {PLUGINS}. An empty "
+                f"audit is not a clean audit — every score, baseline and regression "
+                f"below is computed from this list."
+            )
+    except GateCannotRun as e:
+        print(f"CANNOT RUN: {e}", file=sys.stderr)
+        return 2
+
     reports = [audit_plugin(n, run_tests=args.run_tests) for n in names]
     doc = {"tool": "goat_audit.py", "rubric": "Carmack/Bellard 1-10 (heuristic, mechanizable subset)",
            "count": len(reports), "plugins": reports}
@@ -391,19 +468,37 @@ def main() -> int:
 
     rc = 0
     if args.check:
-        base = json.loads(BASELINE.read_text(encoding="utf-8")) if BASELINE.exists() else {}
+        try:
+            base = _load_baseline()
+        except GateCannotRun as e:
+            print(f"CANNOT RUN: {e}", file=sys.stderr)
+            return 2
         regressions = [(r["plugin"], base[r["plugin"]], r["mean"])
                        for r in reports if r["plugin"] in base and r["mean"] < base[r["plugin"]] - 0.01]
         new_bad = [r for r in reports
                    if r["plugin"] not in base and args.min_mean is not None and r["mean"] < args.min_mean]
+        # A plugin the baseline covers that this run did not score is coverage
+        # that vanished silently: the loop above can only compare what is in
+        # `reports`. Deleting a plugin is legitimate, so this says how to
+        # accept it rather than blocking on it. Skipped when --plugin asked
+        # for a subset on purpose.
+        unaudited = sorted(set(base) - {r["plugin"] for r in reports}) if not args.plugin else []
         for p, was, now in regressions:
             print(f"REGRESSION: {p} {was} -> {now}", file=sys.stderr)
             rc = 1
         for r in new_bad:
             print(f"NEW PLUGIN BELOW BAR: {r['plugin']} mean {r['mean']} < {args.min_mean}", file=sys.stderr)
             rc = 1
+        if unaudited:
+            print(f"BASELINED BUT NOT AUDITED: {', '.join(unaudited)} — the baseline covers "
+                  f"{len(base)} plugins, this run scored {len(reports)}. If they were removed "
+                  f"on purpose, re-run --baseline to accept the smaller surface.", file=sys.stderr)
+            rc = 1
         if rc == 0:
-            print("\nno regressions vs baseline.")
+            # Carries the counts on purpose: "no regressions" alone reads
+            # identically whether 63 plugins were compared or zero were.
+            print(f"\nno regressions: {len(reports)} plugins compared against "
+                  f"{len(base)} baselined in {BASELINE.name}.")
     return rc
 
 

@@ -191,6 +191,152 @@ def test_todos_no_longer_loses_points_to_prose_comments(todos_report):
     assert not any("commented-out" in f for f in findings), str(findings)
 
 
+# --- the --check exit-code contract --------------------------------------------------
+#
+# THE BUG THESE EXIST FOR. `--check` is the gate half of this tool, and it had three
+# distinct ways to exit 0 while comparing NOTHING, each printing the same reassuring
+# "no regressions vs baseline":
+#
+#   no .goat_baseline.json  -> `base = {}` -> every `r["plugin"] in base` is False
+#   no plugins discovered   -> `reports = []` -> nothing to iterate
+#   --plugin <typo>         -> a phantom 0.0 that no baseline can contradict
+#
+# All three are the same failure: a check that could not run, read as a clean one. The
+# tests below assert the exit CODE, not the message, because the exit code is what a
+# gate consumes — and they assert the absence of the reassuring line, because a human
+# skimming a log consumes that.
+
+
+@pytest.fixture
+def gate(tmp_path, monkeypatch):
+    """goat_audit wired to a scratch plugin tree, so exit codes are exact and fast.
+
+    `audit_plugin` is stubbed: these tests are about the gate's control flow, and
+    scoring 63 real plugins per case would make the contract expensive to assert.
+    The scoring itself is covered by the audit_plugin tests above.
+    """
+    plugins = tmp_path / "plugins"
+    plugins.mkdir()
+    monkeypatch.setattr(goat, "PLUGINS", plugins)
+    monkeypatch.setattr(goat, "BASELINE", tmp_path / ".goat_baseline.json")
+    means: dict[str, float] = {}
+
+    monkeypatch.setattr(goat, "audit_plugin", lambda name, run_tests=False: {
+        "plugin": name, "mean": means.get(name, 9.0), "loc": 10, "findings": [],
+        "scores": dict.fromkeys(
+            ("d1_dependency", "d2_dead_code", "d3_self_contained",
+             "d4_test_honesty", "d5_hot_path", "d6_honest_notes"), 9),
+    })
+
+    class Gate:
+        baseline_path = goat.BASELINE
+
+        def plugin(self, name, mean=9.0):
+            (plugins / name).mkdir()
+            (plugins / name / "cli.py").write_text("x = 1\n", encoding="utf-8")
+            means[name] = mean
+
+        def write_baseline(self, text):  # raw text, so a corrupt file is expressible
+            self.baseline_path.write_text(text, encoding="utf-8")
+
+        def run(self, *argv):
+            monkeypatch.setattr(sys, "argv", ["goat_audit.py", *argv])
+            return goat.main()
+
+    return Gate()
+
+
+CANNOT_RUN = 2  # distinct from 1: "the gate did not run" is not "the gate found a bug"
+
+
+def test_a_missing_baseline_cannot_report_no_regressions(gate, capsys):
+    gate.plugin("sitemap")
+    rc = gate.run("--check")
+    assert rc == CANNOT_RUN
+    assert "no regressions" not in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("body, why", [
+    ("{}", "empty object"),
+    ("[]", "a list, not a score map"),
+    ("null", "JSON null"),
+    ("{not json", "truncated file"),
+    ('"63"', "a bare string"),
+])
+def test_an_unusable_baseline_cannot_report_no_regressions(gate, capsys, body, why):
+    gate.plugin("sitemap")
+    gate.write_baseline(body)
+    rc = gate.run("--check")
+    assert rc == CANNOT_RUN, why
+    assert "no regressions" not in capsys.readouterr().out, why
+
+
+def test_auditing_zero_plugins_cannot_report_no_regressions(gate, capsys):
+    gate.write_baseline('{"sitemap": 9.0}')  # a real baseline; the TREE is what is empty
+    rc = gate.run("--check")
+    assert rc == CANNOT_RUN
+    assert "no regressions" not in capsys.readouterr().out
+
+
+def test_a_typod_plugin_name_cannot_report_no_regressions(gate, capsys):
+    gate.plugin("sitemap")
+    gate.write_baseline('{"sitemap": 9.0}')
+    rc = gate.run("--check", "--plugin", "sitemapp")
+    assert rc == CANNOT_RUN
+    assert "no regressions" not in capsys.readouterr().out
+
+
+def test_a_baseline_is_never_written_from_an_empty_audit(gate):
+    """--baseline over a tree with no plugins would disarm --check permanently."""
+    assert gate.run("--baseline") == CANNOT_RUN
+    assert not gate.baseline_path.exists(), gate.baseline_path.read_text(encoding="utf-8")
+
+
+def test_a_plugin_the_baseline_covers_but_the_run_skipped_is_loud(gate, capsys):
+    gate.plugin("sitemap")
+    gate.write_baseline('{"sitemap": 9.0, "vanished": 9.0}')
+    rc = gate.run("--check")
+    assert rc == 1
+    assert "BASELINED BUT NOT AUDITED" in capsys.readouterr().err
+
+
+def test_an_explicit_plugin_subset_is_not_treated_as_vanished_coverage(gate, capsys):
+    """--plugin asks for a subset on purpose; that must stay a usable exit 0."""
+    gate.plugin("sitemap")
+    gate.plugin("todos")
+    gate.write_baseline('{"sitemap": 9.0, "todos": 9.0}')
+    assert gate.run("--check", "--plugin", "sitemap") == 0
+    assert "no regressions" in capsys.readouterr().out
+
+
+# --- the working paths still work -----------------------------------------------------
+
+
+def test_a_real_regression_still_exits_1(gate, capsys):
+    gate.plugin("sitemap", mean=8.0)
+    gate.write_baseline('{"sitemap": 9.0}')
+    assert gate.run("--check") == 1
+    assert "REGRESSION: sitemap 9.0 -> 8.0" in capsys.readouterr().err
+
+
+def test_a_clean_check_exits_0_and_says_what_it_compared(gate, capsys):
+    gate.plugin("sitemap")
+    gate.plugin("todos")
+    gate.write_baseline('{"sitemap": 9.0, "todos": 9.0}')
+    assert gate.run("--check") == 0
+    # The counts are the point: "no regressions" alone reads the same after
+    # comparing 63 plugins and after comparing none.
+    assert "2 plugins compared against 2 baselined" in capsys.readouterr().out
+
+
+def test_baseline_then_check_is_a_closed_loop(gate, capsys):
+    """The remedy the error messages tell a human to run has to actually work."""
+    gate.plugin("sitemap", mean=6.5)
+    assert gate.run("--baseline") == 0
+    capsys.readouterr()
+    assert gate.run("--check") == 0
+
+
 if __name__ == "__main__":
     # `raise SystemExit(pytest.main(...))` and not a bare `pytest.main(...)`: the latter
     # RETURNS the status code and the process would exit 0 no matter what failed, which
