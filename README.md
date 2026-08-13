@@ -153,18 +153,34 @@ one of exactly two things — and they are not interchangeable.** Either the cod
 or the environment does not match the manifest. Triage takes under a second:
 
 ```bash
-pytest tests/test_hard_deps.py -q
+python -m pytest tests/test_hard_deps.py -q
 # exit 0 -> the environment matches the manifest, so a red suite is a real regression
-# exit 1 -> each failure names the dependency that does not match. Fix the environment
-#           (`uv sync --extra dev`, or `pip install -e ".[dev]"`) before reading anything
-#           else in the run: the rest
-#           of it was exercising dependencies the manifest says are not the ones it was
-#           written against.
+# exit 1, failures naming dependencies -> each one names the dependency that does not
+#           match. Fix the environment (`uv sync --locked --extra dev`, or `pip install
+#           -e ".[dev]"`) before reading anything else in the run: the rest of it was
+#           exercising dependencies the manifest says are not the ones it was written
+#           against.
+# exit 1, "No module named pytest" -> nothing ran. Not a dependency verdict.
 ```
 
-In this checkout on 2026-08-13 that is `3 failed, 25 passed` in 0.45s — no `mcp` installed
-at all, and httpx 0.24.1 against a declared `httpx>=0.27`. Those failures are the guard
-working, not a regression, which is precisely why the sentence above is conditional: a
+Invoked as `python -m pytest`, not bare `pytest`, because the two are not
+interchangeable here and the difference is the failure this whole section is about. Bare
+`pytest` is a console script that need not be on `PATH` even where pytest is perfectly
+importable; when it is not there a POSIX shell answers **127** and `command not found` — a
+third outcome neither arm above covers, and the one you actually hit on a fresh checkout.
+Measured in this tree on 2026-08-13: bare `pytest tests/test_hard_deps.py -q` exits 127
+and measures nothing, while `python -m pytest tests/test_hard_deps.py -q` exits 1 and
+reports `3 failed, 25 passed`. Naming the interpreter is what makes the 0-versus-1
+distinction the block rests on reachable at all. That is also why the exit-1 arm is keyed
+to the failures and not to the number: `python -m` returns 1 for a missing pytest module
+too, and "no pytest" is not a statement about your dependencies. Where uv *is* installed,
+triage through it the same way rather than mixing the two environments the section above
+distinguishes.
+
+In this checkout on 2026-08-13 the triage command reports `3 failed, 25 passed` in 0.45s
+— no `mcp` installed at all, and httpx 0.24.1 against a declared `httpx>=0.27`. Those
+failures are the guard working, not a regression, which is precisely why the claim opening
+this section is conditional: a
 permanently red gate teaches people to stop reading it just as effectively as a
 permanently green one. The full run on that same environment is red for that reason and
 no other — 7 failed, 0 errors, and all 7 are the environment: these 3 plus the 4 in
@@ -186,7 +202,7 @@ MCP surface — the difference between two environments that used to look identi
 
 ```bash
 # on an environment that does not match pyproject.toml, this exits 1 -- not 0
-pytest tests/test_hard_deps.py tests/test_mcp_meta.py tests/test_mcp_serve.py
+python -m pytest tests/test_hard_deps.py tests/test_mcp_meta.py tests/test_mcp_serve.py
 # 7 failed, 35 passed, 1 skipped   (measured 2026-08-13 on an env with no `mcp` and httpx 0.24.1)
 ```
 
