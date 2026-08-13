@@ -161,7 +161,7 @@ def list_tools_cmd(server: str = typer.Argument(..., help="server name")):
     db = _load_mcp()
     if server not in db:
         emit({"error": f"{server} not found. bb mcp add {server} <url>"})
-        return
+        raise typer.Exit(1)
     url = db[server]["url"]
     enforce_user_url_or_raise(url, context="mcp list-tools")
     sanitize_no_proxy_env()
@@ -182,6 +182,10 @@ def list_tools_cmd(server: str = typer.Argument(..., help="server name")):
             },
             command="mcp list-tools",
         )
+        # `serve` already exits 1 on a missing SDK; these two did not, so an
+        # unreachable server -- or an absent mcp SDK -- printed an error object
+        # and still handed the shell a 0. `bb mcp list-tools x && deploy` ran.
+        raise typer.Exit(1) from e
 
 
 @app.command("call")
@@ -193,7 +197,7 @@ def call_tool(
     db = _load_mcp()
     if server not in db:
         emit({"error": f"{server} not found"})
-        return
+        raise typer.Exit(1)
     url = db[server]["url"]
     enforce_user_url_or_raise(url, context="mcp call")
     try:
@@ -213,6 +217,8 @@ def call_tool(
             {"server": server, "tool": tool, "args": parsed, "error": str(e)},
             command="mcp call",
         )
+        # A tool that never ran must not look like a tool that returned nothing.
+        raise typer.Exit(1) from e
 
 
 # ---------------------------------------------------------------------------
