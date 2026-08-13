@@ -177,6 +177,17 @@ too, and "no pytest" is not a statement about your dependencies. Where uv *is* i
 triage through it the same way rather than mixing the two environments the section above
 distinguishes.
 
+**Read the exit code unpiped.** Every arm above is keyed to it, and a shell pipeline
+reports the *last* stage's status, not pytest's. Measured in this tree on 2026-08-13:
+`python -m pytest tests/test_hard_deps.py -q` exits **1**, while the same command with
+`| tail -1` appended exits **0** — a broken environment landing in the arm that says the
+environment matches and a red suite is therefore a real regression. That is the precise
+inversion this block exists to prevent, and paging a long run through `tail`, `less` or
+`tee` is the obvious way to run it rather than an exotic one. Redirecting to a log file
+(`> log.txt`) is safe — it is interposing another *process* that swallows the status, not
+the redirection. In bash, read
+`${PIPESTATUS[0]}` instead of `$?` when you pipe.
+
 In this checkout on 2026-08-13 the triage command reports `3 failed, 25 passed` in 0.45s
 — no `mcp` installed at all, and httpx 0.24.1 against a declared `httpx>=0.27`. Those
 failures are the guard working, not a regression, which is precisely why the claim opening
