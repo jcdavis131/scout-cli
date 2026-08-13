@@ -21,12 +21,30 @@ docs/ARCHITECTURE.md all say `pytest tests/`, which never walks `scripts/`. Ever
 ran the passing command. The automated gate ran bare `pytest` from the repo root and had
 been reporting a failure nobody could read for as long as the file had that shape.
 
+CONFTEST IS THE SAME BUG, QUIETER. `conftest.py` is not a `python_files` match, but
+pytest imports it BEFORE any test module, so it is collectible in the only sense that
+matters here — and `tests/conftest.py` does real work at import time (it redirects HOME
+for the whole session). Measured 2026-08-13 with a one-line conftest in a scratch dir:
+
+    conftest body            exit   stderr+stdout   tests run
+    sys.exit(0)                 0        0 bytes            0
+    sys.exit(1)                 1        0 bytes            0
+    raise RuntimeError(...)     4    traceback naming it    0
+
+The SystemExit rows are worse than the exit-3 case above, not merely equal to it: pytest
+never gets to report, so the process adopts the exit code and prints NOTHING. A
+`sys.exit(0)` in a conftest is a whole suite exiting green, silently, having run zero
+tests. That is why this guard walks conftests too.
+
 WHY AST AND NOT A SUBPROCESS. Actually running `pytest --collect-only` from here would
 test the real invariant more directly, but it re-imports every module in the suite and
 would make this the slowest test in the file. Parsing is milliseconds and catches the
 specific shape that bit us. The tradeoff is stated so the next person knows what this
 does NOT cover: an import-time crash that is not an interpreter exit (a bare `raise`, an
 `ImportError`, a module-scope `assert`) still aborts collection and is not caught here.
+That exclusion is principled rather than merely admitted — the table above is the
+measurement: a raise reports (exit 4, traceback naming the file), while an interpreter
+exit does not report at all. This guard covers the shapes that stay silent.
 """
 
 from __future__ import annotations
@@ -51,13 +69,21 @@ SKIP_DIRS = {
 }
 
 
-def _collectible_test_files() -> list[Path]:
-    """Every file pytest's default `python_files` patterns would import."""
+def _files_imported_during_collection() -> list[Path]:
+    """Every file pytest imports before a test runs: `python_files` matches, plus conftests.
+
+    Named for what it covers rather than for `python_files`, because `conftest.py` is
+    not one of those patterns and is imported anyway — earlier than any of them.
+    """
     found = []
     for path in REPO.rglob("*.py"):
         if any(part in SKIP_DIRS for part in path.parts):
             continue
-        if path.name.startswith("test_") or path.name.endswith("_test.py"):
+        if (
+            path.name.startswith("test_")
+            or path.name.endswith("_test.py")
+            or path.name == "conftest.py"
+        ):
             found.append(path)
     return sorted(found)
 
@@ -121,25 +147,39 @@ def _import_time_exits(tree: ast.Module) -> list[tuple[int, str]]:
     return hits
 
 
-def test_there_are_test_files_to_check():
+def test_there_are_files_to_check():
     """Guard the guard: a bad glob here would make every assertion below vacuous."""
-    files = _collectible_test_files()
-    assert len(files) > 50, f"only found {len(files)} test files — the walk is broken"
+    files = _files_imported_during_collection()
+    assert len(files) > 50, f"only found {len(files)} files — the walk is broken"
     names = {p.name for p in files}
     assert "test_goat_audit.py" in names, "the file this guard was written for is missing"
+    # Not implied by the count: conftest.py is one file out of hundreds, so dropping it
+    # from the glob would still leave the assertion above comfortably green.
+    assert "conftest.py" in names, "the earliest-imported file is not being checked"
 
 
 @pytest.mark.parametrize(
-    "path", _collectible_test_files(), ids=lambda p: p.relative_to(REPO).as_posix()
+    "path",
+    _files_imported_during_collection(),
+    ids=lambda p: p.relative_to(REPO).as_posix(),
 )
-def test_no_test_file_can_exit_the_interpreter_at_import_time(path: Path):
+def test_no_collected_file_can_exit_the_interpreter_at_import_time(path: Path):
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     hits = _import_time_exits(tree)
+    # Both shapes are measured in the module docstring; name the one that applies, since
+    # the reader's next move is to recognise the symptom they are staring at.
+    consequence = (
+        "pytest imports conftest.py BEFORE any test module, and a SystemExit there "
+        "propagates out of pytest itself — measured exit 0 with zero bytes of output "
+        "and zero tests run, i.e. the whole suite reporting success in silence"
+        if path.name == "conftest.py"
+        else "pytest imports this file during COLLECTION, so that exit raises "
+        "SystemExit before any test runs and turns the entire session into "
+        "`INTERNALERROR ... no tests ran` (exit 3) — including when the exit status is 0"
+    )
     assert not hits, (
         f"{path.relative_to(REPO).as_posix()} calls "
         + ", ".join(f"{name} at line {line}" for line, name in hits)
-        + " at module level. pytest imports this file during COLLECTION, so that exit "
-        "raises SystemExit before any test runs and turns the entire session into "
-        "`INTERNALERROR ... no tests ran` (exit 3) — including when the exit status is "
-        "0. Move it under `if __name__ == \"__main__\":`."
+        + f" at module level. {consequence}. "
+        'Move it under `if __name__ == "__main__":`.'
     )
