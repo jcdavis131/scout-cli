@@ -82,6 +82,102 @@ def test_unparseable_specifier_fails_it_does_not_pass():
     assert "uncheckable constraint" in str(excinfo.value)
 
 
+# An unreadable manifest must fail LOUDLY AT TEST TIME, never during collection.
+#
+# The two parametrize decorators above are evaluated while pytest builds the test
+# list, so before this guard existed, anything that stopped the parse took the whole
+# session down: `Interrupted: 1 error during collection`, exit 2, zero tests run — the
+# sibling modules never even loaded. Measured 2026-08-13; the trigger was reformatting
+# `dependencies = [` to `dependencies=[`. Each case below is a manifest that cannot parse.
+BROKEN_MANIFESTS = {
+    # What a TOML formatter can do to the line the parser keys on.
+    "reformatted": '[project]\ndependencies=[\n  "mcp>=1.28.1",\n]\n',
+    # The list is found but holds nothing — must not read as "nothing is declared".
+    "empty_list": '[project]\ndependencies = [\n]\n',
+    # No dependency list at all.
+    "absent_key": '[project]\nname = "scout-cli"\n',
+    # Not written at all: PYPROJECT.read_text raises before parsing starts.
+    "missing_file": None,
+}
+
+
+def _manifest(monkeypatch, tmp_path, body):
+    """Point hard_deps at a manifest of our choosing. `None` leaves the file absent."""
+    path = tmp_path / "pyproject.toml"
+    if body is not None:
+        path.write_text(body, encoding="utf-8")
+    monkeypatch.setattr(hard_deps, "PYPROJECT", path)
+    return path
+
+
+@pytest.mark.parametrize("case", sorted(BROKEN_MANIFESTS))
+def test_unreadable_manifest_yields_exactly_one_loud_parameter(
+    case, monkeypatch, tmp_path
+):
+    """Never zero parameters: pytest reports an empty parameter set as SKIPPED.
+
+    This is the half of the bug that hides. Returning `[]` on a failed parse would
+    make both parametrized tests above collect as a single green skip, so a manifest
+    nobody could read would present as a clean run. Exactly one sentinel row keeps
+    the outcome red, and carries the cause so the failure names it.
+    """
+    _manifest(monkeypatch, tmp_path, BROKEN_MANIFESTS[case])
+    reqs = hard_deps.declared_runtime_requirements()
+    assert len(reqs) == 1, reqs
+    assert reqs[0][0] == hard_deps.MANIFEST_UNREADABLE, reqs
+    assert reqs[0][1], "the sentinel must carry the cause, not an empty string"
+    assert hard_deps.declared_runtime_dependencies() == [hard_deps.MANIFEST_UNREADABLE]
+
+
+@pytest.mark.parametrize("case", sorted(BROKEN_MANIFESTS))
+def test_unreadable_manifest_does_not_abort_collection(case, monkeypatch, tmp_path):
+    """Reading a broken manifest must not raise — a raise here kills the whole session.
+
+    `declared_runtime_requirements()` is called from a `@pytest.mark.parametrize`
+    argument, i.e. during collection, where an exception is not a reported failure
+    but `Interrupted: 1 error during collection` with zero tests run.
+    """
+    _manifest(monkeypatch, tmp_path, BROKEN_MANIFESTS[case])
+    hard_deps.declared_runtime_requirements()  # must return, not raise
+
+
+@pytest.mark.parametrize("guard", ["require", "require_declared_version"])
+def test_sentinel_fails_under_both_guards_naming_the_manifest(guard):
+    """Whichever parametrized test receives the sentinel must fail, and say why.
+
+    Without an explicit branch the sentinel still fails, but as "import failed" or
+    "no metadata found" — pointing at a dependency when the manifest is what broke.
+    """
+    with pytest.raises(pytest.fail.Exception) as excinfo:
+        if guard == "require":
+            hard_deps.require(hard_deps.MANIFEST_UNREADABLE)
+        else:
+            hard_deps.require_declared_version(
+                hard_deps.MANIFEST_UNREADABLE, "StopIteration: "
+            )
+    assert not isinstance(excinfo.value, pytest.skip.Exception)
+    assert "could not be parsed" in str(excinfo.value)
+    assert "NO declared dependency was checked" in str(excinfo.value)
+
+
+def test_the_sentinel_cannot_be_a_real_distribution_name():
+    """A sentinel that could collide with a real name would swallow a real check."""
+    assert not hard_deps._REQUIREMENT.match(hard_deps.MANIFEST_UNREADABLE)
+
+
+def test_a_readable_manifest_still_parses_normally(monkeypatch, tmp_path):
+    """Guard the guard: the totality wrapper must not swallow a manifest that IS fine."""
+    _manifest(
+        monkeypatch,
+        tmp_path,
+        '[project]\ndependencies = [\n  "mcp>=1.28.1",\n  "httpx>=0.27",\n]\n',
+    )
+    assert hard_deps.declared_runtime_requirements() == [
+        ("mcp", ">=1.28.1"),
+        ("httpx", ">=0.27"),
+    ]
+
+
 def test_require_fails_it_does_not_skip():
     """The whole point: a missing hard dep is a FAILURE outcome, not a skip.
 

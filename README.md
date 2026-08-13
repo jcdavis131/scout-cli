@@ -112,7 +112,7 @@ pytest tests/test_hard_deps.py -q
 #           written against.
 ```
 
-In this checkout on 2026-08-13 that is `3 failed, 13 passed` in 0.22s — no `mcp` installed
+In this checkout on 2026-08-13 that is `3 failed, 25 passed` in 0.45s — no `mcp` installed
 at all, and httpx 0.24.1 against a declared `httpx>=0.27`. Those failures are the guard
 working, not a regression, which is precisely why the sentence above is conditional: a
 permanently red gate teaches people to stop reading it just as effectively as a
@@ -137,7 +137,7 @@ MCP surface — the difference between two environments that used to look identi
 ```bash
 # on an environment that does not match pyproject.toml, this exits 1 -- not 0
 pytest tests/test_hard_deps.py tests/test_mcp_meta.py tests/test_mcp_serve.py
-# 7 failed, 23 passed, 1 skipped   (measured 2026-08-13 on an env with no `mcp` and httpx 0.24.1)
+# 7 failed, 35 passed, 1 skipped   (measured 2026-08-13 on an env with no `mcp` and httpx 0.24.1)
 ```
 
 `mcp>=1.28.1` is a *hard* dependency in `pyproject.toml`, but four cases in
@@ -160,6 +160,17 @@ Whether the right fix is upgrading httpx or relaxing the pin is a maintainer dec
 guard's job is only to stop the two states from looking identical. A dependency whose
 distribution metadata is missing entirely fails the same way, since a constraint that could
 not be checked must not report as one that was.
+
+A guard against checks that cannot run must not become one, and this one nearly was. Both
+of those per-dependency tests are parametrized over the parsed manifest, and pytest builds
+a parameter list during *collection*, where an exception is not a reported failure but
+`Interrupted: 1 error during collection` — exit 2, zero tests run, sibling modules never
+loaded. Reformatting `dependencies = [` to `dependencies=[`, which is a thing TOML
+formatters do, took the entire suite to nothing while naming only `StopIteration`. Reading
+the manifest is now total: any parse failure yields a single sentinel requirement that
+fails by name and reports the cause, so the run stays red, stays readable, and stays a
+run. Single, not zero — pytest reports an empty parameter set as *skipped*, so returning
+no parameters would have laundered an unreadable manifest into green.
 
 `tests/test_mcp_serve.py` keeps `importorskip` on purpose. It guards at *module* level, and
 a `pytest.fail` during import is a collection error that aborts the whole session — a
