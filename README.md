@@ -90,14 +90,30 @@ Development happens in the [`dottie`](https://github.com/jcdavis131/dottie) mono
 Snapshot: dottie@66886a7
 
 ```bash
-pip install -e ".[dev]"
-pytest tests/
-ruff check .
+uv sync --locked --extra dev   # the environment uv.lock pins; --locked so it cannot rewrite it
+uv run pytest tests/
+uv run ruff check .
 ```
 
 `pytest tests/` is the suite. Bare `pytest` also picks up `scripts/test_goat_audit.py` (the
 GOAT audit's own tests) — `testpaths` in `pyproject.toml` pins both roots, so the two
 commands differ only in that one deliberate way.
+
+**`uv.lock` is what pins this environment, so run the gates through `uv`.** `pip install -e
+".[dev]"` also works and every command below is written to be runnable either way — but the
+two do not produce the same environment, and only one of them is the one this repo
+describes. `pyproject.toml` declares floors (`httpx>=0.27`, `mcp>=1.28.1`); `uv.lock` names
+versions (httpx 0.28.1, mcp 1.28.1). pip re-resolves those floors against whatever the
+machine and the index hand it that day, which is a *different* environment that happens to
+be legal. That distinction is not pedantic here: with uv absent, the pinned suite does not
+run at all, and a gate that could not run is not a gate that passed. If you have no uv,
+say so when you report the result, and use the triage command below to establish which
+environment you actually measured.
+
+`--locked` is load-bearing rather than decorative: bare `uv sync` re-resolves and *rewrites*
+`uv.lock` when `pyproject.toml` has drifted from it, so the setup step would quietly redefine
+the pin the gate is supposed to be checking against. `--locked` fails instead and tells you
+the lock is stale, which is a thing you want to find out deliberately.
 
 `python scripts/goat_audit.py --check` is a second gate, run by hand rather than by CI: it
 re-scores every plugin against the accepted `.goat_baseline.json` and exits **1** if one
@@ -108,6 +124,30 @@ found, a `--plugin` name that is not on disk — because each of those used to p
 regressions vs baseline" after comparing against nothing. Exit 0 now names the two counts it
 compared, so a green line cannot be read without seeing how much it covered.
 
+**That gate is red in this tree right now, on one known regression — read this before you
+assume you caused it.** Measured 2026-08-13:
+
+```bash
+python scripts/goat_audit.py --check
+# REGRESSION: agents 6.83 -> 6.67     (exit 1; the file it compares against is unchanged —
+#                                      --check never writes .goat_baseline.json)
+```
+
+It is one dimension on one plugin. `.goat_baseline.json` was recorded at `7c02e7a`, and
+`bigbang/plugins/agents/cli.py` has changed exactly once since, in `14e878a` — the fix that
+stopped the agents plugin writing checkpoints into the cwd. That fix added 13 lines to
+`_triple_write()`, carrying it across the audit's 80-line D5 threshold — the run now reports
+`D5: _triple_write() is 81 lines` and the score falls 41/6 to 40/6. The regression *is* the
+cost of a real bug fix, correctly reported by a heuristic that does not know the difference.
+
+Both honest resolutions are a maintainer call and neither is done here: split
+`_triple_write()` so the plugin actually earns the point back, or re-run `--baseline` to
+accept 6.67 as the new floor with that reasoning in the commit message. What is not
+acceptable is re-accepting the baseline as routine hygiene, because a baseline refreshed
+whenever it goes red is a gate that can only ever say what already happened. It is recorded
+here rather than fixed so that the next red on this gate is distinguishable from this one —
+an unexplained red retires a gate just as thoroughly as an unexplained green.
+
 **On an environment that matches `pyproject.toml` the suite is fully green, so red means
 one of exactly two things — and they are not interchangeable.** Either the code regressed,
 or the environment does not match the manifest. Triage takes under a second:
@@ -116,7 +156,8 @@ or the environment does not match the manifest. Triage takes under a second:
 pytest tests/test_hard_deps.py -q
 # exit 0 -> the environment matches the manifest, so a red suite is a real regression
 # exit 1 -> each failure names the dependency that does not match. Fix the environment
-#           (`pip install -e ".[dev]"`) before reading anything else in the run: the rest
+#           (`uv sync --extra dev`, or `pip install -e ".[dev]"`) before reading anything
+#           else in the run: the rest
 #           of it was exercising dependencies the manifest says are not the ones it was
 #           written against.
 ```
