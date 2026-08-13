@@ -820,7 +820,7 @@ def _make_dir_link(link: Path, target: Path) -> str:
     if sys.platform == "win32":
         proc = subprocess.run(
             ["cmd", "/c", "mklink", "/J", str(link), str(target)],
-            capture_output=True, text=True, check=False,
+            capture_output=True, text=True, check=False, timeout=60,
         )
         if proc.returncode == 0 and link.exists():
             return "junction"

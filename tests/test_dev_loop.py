@@ -55,7 +55,7 @@ def test_dev_loop_uses_ok_err_and_no_secrets():
 def _git(args, cwd):
     return subprocess.run(
         ["git", *args], cwd=str(cwd), capture_output=True, text=True,
-        encoding="utf-8", errors="replace",
+        encoding="utf-8", errors="replace", timeout=60,
     )
 
 

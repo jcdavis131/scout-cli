@@ -77,6 +77,7 @@ def test_json_contract():
         text=True,
         encoding="utf-8",
         errors="replace",
+        timeout=60,
     )
     assert r.returncode == 0
     data = json.loads(r.stdout)
