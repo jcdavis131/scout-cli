@@ -99,6 +99,15 @@ ruff check .
 GOAT audit's own tests) — `testpaths` in `pyproject.toml` pins both roots, so the two
 commands differ only in that one deliberate way.
 
+`python scripts/goat_audit.py --check` is a second gate, run by hand rather than by CI: it
+re-scores every plugin against the accepted `.goat_baseline.json` and exits **1** if one
+regressed, or if the baseline covers a plugin a whole-tree run did not score — asking for a
+subset with `--plugin` is exempt, since naming one plugin is not losing the other 62. It
+exits **2**, never 0, when the comparison *could not run* — no baseline file, no plugins
+found, a `--plugin` name that is not on disk — because each of those used to print "no
+regressions vs baseline" after comparing against nothing. Exit 0 now names the two counts it
+compared, so a green line cannot be read without seeing how much it covered.
+
 **On an environment that matches `pyproject.toml` the suite is fully green, so red means
 one of exactly two things — and they are not interchangeable.** Either the code regressed,
 or the environment does not match the manifest. Triage takes under a second:
