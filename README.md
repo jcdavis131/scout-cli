@@ -261,9 +261,9 @@ no parameters would have laundered an unreadable manifest into green.
 
 `tests/test_mcp_serve.py` keeps `importorskip` on purpose. It guards at *module* level, and
 a `pytest.fail` during import is a collection error that aborts the whole session — a
-missing `mcp` would run 0 of ~2650 tests instead of failing 5, which is the same
-cannot-run-reads-as-green shape one level up. `test_hard_deps.py` is the loud guard; that
-module-level skip is just how one file declines.
+missing `mcp` would run 0 of ~2700 tests instead of failing 6 (the 7 above less the httpx
+one), which is the same cannot-run-reads-as-green shape one level up. `test_hard_deps.py`
+is the loud guard; that module-level skip is just how one file declines.
 
 `tests/test_mcp_exit_codes.py` is deliberately not guarded either way — it monkeypatches
 the SDK boundary instead of importing across it, so it is the one part of the mcp surface
