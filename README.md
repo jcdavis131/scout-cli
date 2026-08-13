@@ -108,7 +108,7 @@ now build their own layout in `tmp_path` and pin resolution *order*. There is no
 "ignore those" list. `addopts = "-ra"` means every skip prints its reason, so a check that
 declines to run cannot be mistaken for one that passed.
 
-A full run reports **2641 passed, 9 skipped** (~9 min). Read the skip list, because the nine
+A full run reports **2644 passed, 9 skipped** (9m10s). Read the skip list, because the nine
 are two different things:
 
 - **Five are a warning, not a pass.** `tests/test_mcp_serve.py` and four cases in
@@ -118,9 +118,11 @@ are two different things:
   trusting the result. `tests/test_mcp_exit_codes.py` is deliberately *not* guarded that
   way — it monkeypatches the SDK boundary instead of importing across it, so it is the one
   part of the mcp surface that is still checked when those five sit out. It was written
-  after that gap hid a real bug: `mcp list-tools` and `mcp call` printed an `{"error": …}`
-  object and exited **0**, so `bb mcp call srv deploy && ship` ran `ship` against a tool
-  that never executed. Both now exit 1, matching `mcp serve`.
+  after that gap hid a real bug: `mcp list-tools`, `mcp call` and `mcp ns call` printed an
+  `{"error": …}` object and exited **0**, so `bb mcp call srv deploy && ship` ran `ship`
+  against a tool that never executed. All three now exit 1, matching `mcp serve`. `mcp ns
+  tools` still exits 0 with a partial listing — per-server failures come back in an
+  `errors` map, which is that command's contract, not a laundered exit code.
 - **Four are environmental and expected**: the `bundles/cli.sh` wrapper check (needs
   `SCOUT_BUNDLES_CLI_SH` pointed at a real wrapper; that artifact is not part of this
   checkout), `acne.tools` and `skills.state_store` (companion `dottie` workspace members,

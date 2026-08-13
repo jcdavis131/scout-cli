@@ -425,15 +425,18 @@ def ns_call(
     except json.JSONDecodeError as e:
         emit({"error": f"args is not valid JSON: {e}"})
         raise typer.Exit(1) from e
-    _check_sdk()
     try:
+        _check_sdk()
         result = call_mcp_tool_sync(url, tool, parsed)
     except Exception as e:
         emit(
             {"namespace": name, "tool": qualified, "args": parsed, "error": str(e)},
             command="mcp ns call",
         )
-        return
+        # Same rule as `mcp call`: a tool that never ran must not look like a tool
+        # that returned nothing. This was a bare `return` -- exit 0 -- so
+        # `scout mcp ns call work srv__deploy && ship` shipped on a failed call.
+        raise typer.Exit(1) from e
     emit(
         {"namespace": name, "tool": qualified, "args": parsed, "result": result},
         command="mcp ns call",

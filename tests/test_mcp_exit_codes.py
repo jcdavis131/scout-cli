@@ -6,6 +6,12 @@ logs `status="ok"` regardless of what is in the payload. `mcp serve` compensated
 server, an unknown server name, or an absent mcp SDK printed an `{"error": ...}` object
 and still exited 0. `bb mcp call srv deploy && ship` would run `ship`.
 
+The namespaced twin, `mcp ns call`, had the identical bug (a bare `return` after the
+error payload) and is covered below. `mcp ns tools` is deliberately left alone: it is a
+listing command whose contract is a *partial* result -- per-server failures come back in
+an `errors` map alongside whatever the reachable servers returned -- so exit 0 there
+reports what it found, not a call that silently did not happen.
+
 WHY THESE TESTS ARE NOT GUARDED BY `importorskip("mcp")`. The five existing
 `importorskip("mcp")` sites are why this bug survived: `mcp>=1.28.1` is a hard
 dependency in pyproject.toml, so in an environment missing it the whole `mcp` surface
@@ -99,6 +105,49 @@ def test_unknown_server_exits_nonzero(monkeypatch):
     called = runner.invoke(mcp_cli.app, ["call", "nope", "some_tool"])
     assert called.exit_code != 0
     assert "not found" in _out(called)
+
+
+# ---------------------------------------------------------------------------
+# The same failure, one command deeper: `mcp ns call`
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def namespaced(monkeypatch, registered):
+    """A namespace `work` containing the one registered server.
+
+    `ns_call` imports `meta` inside the function body, so the store functions must be
+    patched on `bigbang.plugins.mcp.meta` -- patching `mcp_cli` would silently miss.
+    `_check_sdk` is stubbed for the same reason the rest of this file avoids
+    `importorskip`: the success-path assert must hold with or without the SDK.
+    """
+    from bigbang.plugins.mcp import meta
+
+    cfg = meta.new_namespace()
+    cfg["servers"].append("srv")
+    monkeypatch.setattr(meta, "load_namespaces", lambda: {"work": cfg})
+    monkeypatch.setattr(meta, "load_servers", lambda: {"srv": {"url": "http://x/sse"}})
+    monkeypatch.setattr(mcp_cli, "_check_sdk", lambda: True)
+    return cfg
+
+
+def test_ns_call_exits_nonzero_when_the_call_fails(namespaced, monkeypatch):
+    """`ns call` laundered its exit code exactly like `call` did -- via a bare return."""
+    monkeypatch.setattr(mcp_cli, "call_mcp_tool_sync", _boom)
+    result = runner.invoke(mcp_cli.app, ["ns", "call", "work", "srv__some_tool"])
+    assert result.exit_code != 0, "a namespaced tool that never ran must not exit 0"
+    assert "error" in _out(result)
+
+
+def test_successful_ns_call_still_exits_zero(namespaced, monkeypatch):
+    monkeypatch.setattr(
+        mcp_cli, "call_mcp_tool_sync", lambda url, tool, args: {"ok": tool}
+    )
+    result = runner.invoke(mcp_cli.app, ["ns", "call", "work", "srv__some_tool"])
+    assert result.exit_code == 0, _out(result)
+    # The sentinel from the fake result, not the echoed argument -- proves the
+    # success payload was emitted rather than the error one.
+    assert '"ok"' in _out(result)
 
 
 # ---------------------------------------------------------------------------
