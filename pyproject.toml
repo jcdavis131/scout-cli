@@ -68,6 +68,11 @@ bigbang = [
 # test, and dropping it to `["tests"]` would make bare `pytest` green while silently
 # never running that check again — trading a loud crash for a quiet hole.
 testpaths = ["tests", "scripts"]
+# `-ra` so a SKIP can never be read as a pass. It earned itself immediately: 5 of the 9
+# skips in the first green run were `No module named 'mcp'`, and `mcp>=1.28.1` is a hard
+# dependency above — an incomplete install was silently dropping five checks while the
+# summary line still said passed.
+addopts = "-ra"
 
 [tool.ruff]
 target-version = "py311"

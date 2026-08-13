@@ -120,29 +120,108 @@ def test_an_allowed_asset_url_still_downloads(monkeypatch, tmp_path):
 # apps/scout-rtx/bigbang-bridge/cli.py, which checks the containing checkout second.
 
 
-def test_custom_root_resolves_to_an_existing_directory():
-    """The defect: it returned a legacy path that was not there."""
+# These used to assert THE BOX, not the resolver: `_resolve_custom_root().exists()`,
+# `BB_OFFLOAD.exists()`, and `parents[5]` as "the repo root". All three are wrong here.
+# `apps/scout-rtx` is a companion tree that does not exist in this standalone mirror, so
+# the resolver CORRECTLY falls through to ~/workspace/dottie/apps/scout-rtx — under the
+# throwaway HOME from conftest.py, where nothing can exist. And parents[5] is only the
+# root inside the dottie monorepo (apps/scout-cli/bigbang/plugins/<p>/cli.py); here it
+# walks five levels PAST the checkout. The resolver was always fine; only the tests
+# counted parents. Three permanently-red tests nobody could act on is how the 23 unrelated
+# errors below them sat unremarked across four parked cycles of "pytest: fail".
+#
+# So build the layout instead of hoping for it, and pin what the resolver actually
+# promises: the resolution ORDER, and that no candidate is returned unguarded.
+
+
+def _isolate(monkeypatch, home, plugin_file):
+    """Cut both machine dependencies the resolver has: $HOME and where this file lives.
+
+    USERPROFILE is not belt-and-braces — `Path.home()` reads it on Windows and HOME on
+    POSIX, so setting one of the two leaves the test passing on one platform only. The
+    session HOME from conftest.py is SHARED and other modules mkdir into it
+    (test_agents_langchain creates ~/workspace/dottie/apps/...), so a test that reads it
+    is order-dependent — the exact disease these replacements cure.
+    """
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))
+    monkeypatch.delenv("SCOUT_RTX_ROOT", raising=False)
+    monkeypatch.delenv("DOTTIE_ROOT", raising=False)
     from bigbang.plugins.rtx import cli as rc
 
-    assert rc._resolve_custom_root().exists(), rc._resolve_custom_root()
+    monkeypatch.setattr(rc, "__file__", str(plugin_file))
+    return rc
 
 
-def test_custom_root_is_the_checkout_this_plugin_lives_in():
-    """Pins the ORDER. 'Resolves to something that exists' would pass on a stray checkout."""
-    from pathlib import Path
+def _make(root):
+    root.mkdir(parents=True, exist_ok=True)
+    return root
 
-    from bigbang.plugins.rtx import cli as rc
+
+def test_the_containing_checkout_outranks_dottie_root_and_the_home_layout(
+    tmp_path, monkeypatch
+):
+    """The defect, hermetically. All three candidates exist; the local one must win."""
+    checkout = tmp_path / "checkout"
+    home = tmp_path / "home"
+    mine = _make(checkout / "apps" / "scout-rtx")
+    _make(tmp_path / "dottie" / "apps" / "scout-rtx")
+    _make(home / "workspace" / "dottie" / "apps" / "scout-rtx")
+
+    rc = _isolate(monkeypatch, home, checkout / "bigbang" / "plugins" / "rtx" / "cli.py")
+    monkeypatch.setenv("DOTTIE_ROOT", str(tmp_path / "dottie"))
+    assert rc._resolve_custom_root() == mine
+
+
+def test_dottie_root_outranks_the_home_layout(tmp_path, monkeypatch):
+    """Non-vacuity for the ordering above: a resolver hardcoded to the checkout fails."""
+    home = tmp_path / "home"
+    override = _make(tmp_path / "dottie" / "apps" / "scout-rtx")
+    _make(home / "workspace" / "dottie" / "apps" / "scout-rtx")
+
+    # A checkout with no apps/scout-rtx in it, so the walk-up finds no candidate.
+    rc = _isolate(monkeypatch, home, tmp_path / "bare" / "cli.py")
+    monkeypatch.setenv("DOTTIE_ROOT", str(tmp_path / "dottie"))
+    assert rc._resolve_custom_root() == override
+
+
+def test_the_legacy_standalone_cannot_outrank_the_documented_layout(tmp_path, monkeypatch):
+    """~/workspace/autoresearch-rtx-custom used to win. It is demoted, and guarded."""
+    home = tmp_path / "home"
+    documented = _make(home / "workspace" / "dottie" / "apps" / "scout-rtx")
+    _make(home / "workspace" / "autoresearch-rtx-custom")
+
+    rc = _isolate(monkeypatch, home, tmp_path / "bare" / "cli.py")
+    assert rc._resolve_custom_root() == documented
+
+
+def test_no_candidate_is_ever_returned_unguarded(tmp_path, monkeypatch):
+    """The structural fix. Nothing exists, so the answer must NAME the canonical location.
+
+    The original bug was an unguarded final `return` of a legacy path: the one candidate
+    nobody existence-checked was the one that shipped. With an empty box the resolver may
+    only point at where the checkout SHOULD be, so an error message is actionable.
+    """
+    home = tmp_path / "home"
+    rc = _isolate(monkeypatch, home, tmp_path / "bare" / "cli.py")
 
     got = rc._resolve_custom_root()
-    repo = Path(rc.__file__).resolve().parents[5]
-    assert str(got).lower().startswith(str(repo).lower()), f"{got} outside {repo}"
-    assert got.name == "scout-rtx", got
+    assert not got.exists(), got
+    assert got == home / "workspace" / "dottie" / "apps" / "scout-rtx", got
+    assert "autoresearch-rtx-custom" not in str(got), f"named the legacy path: {got}"
 
 
-def test_bb_offload_derives_from_a_real_root():
+def test_bb_offload_derives_from_the_resolved_root():
+    """Pins the DERIVATION, not existence.
+
+    `BB_OFFLOAD.exists()` was an assertion about the developer's disk: these are bound at
+    import time from whatever the machine happens to have. What the module owes its callers
+    is that the offload dir hangs off the resolved root, and that is checkable anywhere.
+    """
     from bigbang.plugins.rtx import cli as rc
 
-    assert rc.BB_OFFLOAD.exists(), rc.BB_OFFLOAD
+    assert rc.BB_OFFLOAD == rc.CUSTOM_ROOT / "bb-offload"
+    assert rc.QUEUE_FILE == rc.BB_OFFLOAD / "queue.json"
 
 
 def test_scout_rtx_root_env_override_wins(tmp_path, monkeypatch):

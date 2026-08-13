@@ -155,13 +155,30 @@ def test_shared_lib_importable_without_torch():
 
 
 def test_cli_sh_wrapper_single_source():
-    """bundles/cli.sh must exist and be executable and proxy to same module."""
-    import subprocess, os
-    wrapper = Path.home() / "workspace" / "bundles" / "cli.sh"
-    # also accept path via env var workspace
-    if not wrapper.exists():
-        wrapper = Path("/home/hatch/workspace/bundles/cli.sh")
-    assert wrapper.exists(), f"{wrapper} missing"
+    """bundles/cli.sh must proxy to the same module — checked only against a REAL wrapper.
+
+    This used to look under `Path.home()`, then hardcode `/home/hatch/...`, and assert
+    existence. Under the conftest throwaway HOME neither can be there, so the test was
+    satisfied by test_harness_timeline fabricating the shim at import time and then
+    exec'ing it — verifying the suite's own scratch file, not a shipped artifact. On
+    Windows the same shim raised WinError 193 instead.
+
+    The subject is now named explicitly by the operator or the check declines to run.
+    A skip that says why is a check you can act on; a pass against a forgery is not.
+    Point SCOUT_BUNDLES_CLI_SH at a real wrapper and this runs for real — verified
+    non-vacuous that way, not by asserting the box has one.
+    """
+    import os
+    import subprocess
+
+    env_path = os.environ.get("SCOUT_BUNDLES_CLI_SH")
+    if not env_path:
+        pytest.skip(
+            "set SCOUT_BUNDLES_CLI_SH=<path to bundles/cli.sh> to check the wrapper "
+            "proxies to bigbang.cli; the wrapper is not part of this checkout"
+        )
+    wrapper = Path(env_path).expanduser()
+    assert wrapper.exists(), f"SCOUT_BUNDLES_CLI_SH points at nothing: {wrapper}"
     r = subprocess.run(
         [str(wrapper), "--json", "harness", "route", "heartbeat tick"],
         capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=10

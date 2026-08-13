@@ -23,18 +23,18 @@ from pathlib import Path
 import pytest
 
 
-# The pinned wrapper test (test_harness_vector.test_cli_sh_wrapper_single_source)
-# expects the single-source shim documented in docs/HARNESS_POLISH_2026-08-05.md at
-# ~/workspace/bundles/cli.sh. The conftest throwaway HOME starts empty, so materialize
-# the shim there at import time (this module is collected before test_harness_vector).
-_WRAPPER = Path.home() / "workspace" / "bundles" / "cli.sh"
-if not _WRAPPER.exists():
-    _WRAPPER.parent.mkdir(parents=True, exist_ok=True)
-    _WRAPPER.write_text(
-        "#!/usr/bin/env bash\nset -euo pipefail\nexec python3 -m bigbang.cli \"$@\"\n",
-        encoding="utf-8",
-    )
-    _WRAPPER.chmod(0o755)
+# REMOVED 2026-08-13: this module used to fabricate a three-line bash shim at
+# ~/workspace/bundles/cli.sh AT IMPORT TIME, for the stated purpose of making a test in
+# ANOTHER module pass (test_harness_vector.test_cli_sh_wrapper_single_source), relying on
+# being collected first. Nothing in this module ever read `_WRAPPER`.
+#
+# All three outcomes were wrong, and the green one was the worst:
+#   vector alone      -> "missing"
+#   with this module  -> OSError [WinError 193]; a .sh does not exec on Windows
+#   on Linux          -> PASSED, by exec'ing the shim the suite had just written
+# A test that verifies a shipped artifact, satisfied by an artifact the test suite
+# manufactured seconds earlier, reports success while checking nothing. The wrapper check
+# now supplies its own subject or skips loudly; see test_harness_vector.py.
 
 
 @pytest.fixture(autouse=True)

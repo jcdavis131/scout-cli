@@ -99,6 +99,17 @@ ruff check .
 GOAT audit's own tests) — `testpaths` in `pyproject.toml` pins both roots, so the two
 commands differ only in that one deliberate way.
 
+**The suite is expected to be fully green, so treat any red as a real regression.** It was
+not, for a while: a handful of tests asserted the *developer's machine layout* rather than
+the product — the plugin resolvers for `apps/scout-rtx` and `apps/ava-factory`, which are
+companion trees that do not exist in this standalone mirror, so the resolvers correctly
+fell through to a `$HOME` path that could not exist under the throwaway test HOME. Those
+now build their own layout in `tmp_path` and pin resolution *order*. There is no longer an
+"ignore those" list. `addopts = "-ra"` means every skip prints its reason, so a check that
+declines to run cannot be mistaken for one that passed — one skip is expected (the
+`bundles/cli.sh` wrapper check, which needs `SCOUT_BUNDLES_CLI_SH` pointed at a real
+wrapper, since that artifact is not part of this checkout).
+
 CI runs a non-blocking `ruff check` (`.github/workflows/lint.yml`); lint findings are fixed in `dottie`, not here, since snapshots overwrite this tree. Docs: [architecture](docs/ARCHITECTURE.md), [security model](docs/SECURITY.md), [extending](docs/EXTENDING.md). The RTX offload companion repo is [`scout-rtx`](https://github.com/jcdavis131/scout-rtx), wired up as described in [INTEGRATION.md](INTEGRATION.md).
 
 ## Ecosystem
