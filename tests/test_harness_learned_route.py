@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import os
+import random
 import subprocess
 import sys
 import textwrap
@@ -66,11 +67,43 @@ GOAL_BUILD = "build a data pipeline and test the api endpoints for the harness"
 GOAL_COMPARE = "compare Stripe vs Lemon Squeezy Aug 2026"
 
 
-def make_fixture_weights(tmp_path: Path) -> Path:
-    """Tiny VALID schema_version-1 weights file (synthetic, numpy seed 0)."""
-    import numpy as np
+def _require_numpy() -> None:
+    """Skip loudly when numpy is absent — do not assert on a tier that cannot exist.
 
-    rng = np.random.default_rng(0)
+    Only the INTERNAL forward pass (learned_router.py `_internal_load_weights` /
+    `_internal_predict`) needs numpy, and scout-cli deliberately does not pin it.
+    Without numpy `--learned` correctly reports learned_reason="numpy unavailable"
+    and no learned tier, so these assertions have nothing real to check. `-ra`
+    (pyproject addopts) prints every skip reason on every run, so this hole
+    announces itself rather than reading as a pass.
+    """
+    pytest.importorskip(
+        "numpy",
+        reason="internal learned-router forward pass needs numpy; not a scout-cli dependency",
+    )
+
+
+def make_fixture_weights(tmp_path: Path) -> Path:
+    """Tiny VALID schema_version-1 weights file (synthetic, stdlib `random`, seed 0).
+
+    Deliberately numpy-free. Building the fixture with numpy meant four of the six
+    tests here died at fixture-build time on a clean install (ModuleNotFoundError),
+    and the entry-point numpy probe broke a fifth (missing-weights fallback
+    reported "numpy unavailable" instead of naming the absent path). One of the
+    four, the shared-module test, needs no numpy at any point — it was the check
+    that would have caught that probe-placement bug, and it could not run.
+
+    The values only have to be finite floats of the contracted shape that
+    `_internal_load_weights` validates; nothing here is a trained model.
+    """
+    rng = random.Random(0)
+
+    def normal(*shape: int):
+        """Nested list of gaussian floats with the given shape."""
+        if len(shape) == 1:
+            return [rng.gauss(0.0, 1.0) for _ in range(shape[0])]
+        return [normal(*shape[1:]) for _ in range(shape[0])]
+
     n_buckets, embed_dim, hidden_dim, n_tiers = 32, 4, 4, 5
     doc = {
         "schema_version": 1,
@@ -88,14 +121,14 @@ def make_fixture_weights(tmp_path: Path) -> Path:
         },
         "norms": {"dense_mean": [0.0] * 6, "dense_std": [1.0] * 6},
         "weights": {
-            "embedding": rng.normal(size=(n_buckets, embed_dim)).tolist(),
-            "w1": rng.normal(size=(embed_dim + 6, hidden_dim)).tolist(),
-            "b1": rng.normal(size=(hidden_dim,)).tolist(),
-            "w_tier": rng.normal(size=(hidden_dim, n_tiers)).tolist(),
-            "b_tier": rng.normal(size=(n_tiers,)).tolist(),
-            "w_risk": rng.normal(size=(hidden_dim,)).tolist(),
+            "embedding": normal(n_buckets, embed_dim),
+            "w1": normal(embed_dim + 6, hidden_dim),
+            "b1": normal(hidden_dim),
+            "w_tier": normal(hidden_dim, n_tiers),
+            "b_tier": normal(n_tiers),
+            "w_risk": normal(hidden_dim),
             "b_risk": 0.1,
-            "w_cost": rng.normal(size=(hidden_dim,)).tolist(),
+            "w_cost": normal(hidden_dim),
             "b_cost": 0.2,
         },
     }
@@ -112,6 +145,7 @@ def _learned_env(tmp_path: Path, weights: Path, infer: Path | None = None) -> di
 
 
 def test_learned_route_internal_impl(tmp_path):
+    _require_numpy()
     weights = make_fixture_weights(tmp_path)
     out = _run_cli("--json", "harness", "route", GOAL_BUILD, "--learned",
                    env=_learned_env(tmp_path, weights))
@@ -179,6 +213,10 @@ def test_learned_route_fallback_missing_weights(tmp_path):
 
 
 def test_learned_route_fallback_invalid_weights(tmp_path):
+    # Shape validation lives in `_internal_load_weights`, which needs numpy —
+    # without it the router (correctly) reports "numpy unavailable" and never
+    # reaches the shape check this test exists to exercise.
+    _require_numpy()
     weights = make_fixture_weights(tmp_path)
     doc = json.loads(weights.read_text(encoding="utf-8"))
     doc["weights"]["w_tier"] = doc["weights"]["w_tier"][:2]  # truncate: wrong shape
@@ -206,6 +244,7 @@ def test_route_without_flag_has_no_learned_keys():
 
 
 def test_learned_route_deterministic(tmp_path):
+    _require_numpy()
     weights = make_fixture_weights(tmp_path)
     env = _learned_env(tmp_path, weights)
     a = _run_cli("--json", "harness", "route", GOAL_BUILD, "--learned", env=env)["data"]

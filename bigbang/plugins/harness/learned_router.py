@@ -28,6 +28,10 @@ so package import is impossible):
       schema_version-1 featurize + forward contract (the shared module is
       built by a parallel lane and may be absent).
 Which one served is recorded as infer_impl "shared_module" | "internal".
+
+numpy is required by (b) ONLY, and is probed on that branch rather than at
+function entry: scout-cli does not pin numpy, and a stdlib-only shared module
+must still be able to serve on an install that has none.
 """
 from __future__ import annotations
 
@@ -230,11 +234,6 @@ def learned_route(goal: str, heuristic: dict) -> dict:
     from the goal text alone — the heuristic fields stay untouched.
     """
     try:
-        try:
-            import numpy  # noqa: F401 — availability probe only; scout-cli does not pin numpy
-        except ImportError:
-            return _fallback("numpy unavailable")
-
         path = _resolve_weights_path()
         if not path.exists():
             return _fallback(f"weights not found at {path}")
@@ -250,7 +249,18 @@ def learned_route(goal: str, heuristic: dict) -> dict:
                 except Exception as exc:
                     return _fallback(f"weights invalid: {exc}")
             else:
+                # numpy is needed by the INTERNAL forward pass only, so the probe
+                # belongs here and not at function entry. Probing at entry made a
+                # missing numpy disable stage (a) too, so a numpy-free shared
+                # module was reported as unusable when it would have served fine.
+                # Probing inside the `weights invalid` try-block instead would
+                # launder a missing interpreter dependency into a "your weights
+                # are corrupt" reason, which points the reader at the wrong file.
                 impl = "internal"
+                try:
+                    import numpy  # noqa: F401 — availability probe; scout-cli does not pin numpy
+                except ImportError:
+                    return _fallback("numpy unavailable")
                 try:
                     model = _internal_load_weights(path)
                 except Exception as exc:
