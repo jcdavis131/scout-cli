@@ -184,10 +184,17 @@ BigBang is the tool you use for everything AND the tool you give to Ava:
 ## Testing
 
 ```bash
-pytest tests/ -v
+python -m pytest -q
 # Full suite (run for the current count): import, security, registry, manifests, json contract,
 # write scan STRONG_AI, humanize 0, generate HUMAN_LIKE, cli json, lab ideas, brain, ava routes
 ```
+
+No path argument: `testpaths` in `pyproject.toml` is `["tests", "scripts"]`, so `pytest tests/`
+drops the second root and can be green while `scripts/test_goat_audit.py` is not. `python -m` and
+not bare `pytest`, which is a console script that need not be on `PATH` even where pytest imports
+fine — measured in this tree on 2026-08-13, a POSIX shell answers `127` and `command not found`,
+which is not a test result. README → Development and releases has the uv-pinned form and the
+triage for a red run.
 
 ## Disclaimer
 

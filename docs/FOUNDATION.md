@@ -124,7 +124,7 @@ Default Dottie path: `~/.dottie-claw/skills/<name>/SKILL.md`
 scout system scaffold mytool
 # edit manifest.yaml capabilities
 # implement commands with emit(ok(...)) / fail_agent(...)
-pytest tests/ -q
+python -m pytest -q   # no path: `testpaths` is ["tests", "scripts"]; `pytest tests/` drops a root
 scout --json mytool hello
 scout skill show scout   # ensure docs still match
 ```
@@ -142,7 +142,7 @@ Every new plugin must:
 ## 6. Success metrics
 
 - Cold agent (Dottie) can run `scout skill show scout` and complete a herd create→start→wait loop without human help  
-- `pytest tests/` green; MCP lists `scout_*` tools  
+- `python -m pytest -q` green over both `testpaths` roots; MCP lists `scout_*` tools  
 - New plugin via scaffold is agent-safe by default  
 - Zero new prompt-first commands on the foundation surface  
 

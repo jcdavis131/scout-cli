@@ -17,9 +17,13 @@ check took down ~2500 tests in `tests/`, none of which ran. Nothing in the outpu
 `importlib._bootstrap` frames, and the run's only summary line was `exit 3`.
 
 SECOND, ONLY THE ROBOT COULD SEE IT. README, docs/FOUNDATION.md, docs/EXTENDING.md and
-docs/ARCHITECTURE.md all say `pytest tests/`, which never walks `scripts/`. Every human
+docs/ARCHITECTURE.md all said `pytest tests/`, which never walks `scripts/`. Every human
 ran the passing command. The automated gate ran bare `pytest` from the repo root and had
-been reporting a failure nobody could read for as long as the file had that shape.
+been reporting a failure nobody could read for as long as the file had that shape. Those
+three docs now say `python -m pytest -q` with no path argument, which collects both
+`testpaths` roots, so the command a human types covers this directory too; README still
+teaches `pytest tests/` and names the one way a bare run differs. This guard is the part
+that does not depend on anyone reading that: it catches the shape wherever it reappears.
 
 CONFTEST IS THE SAME BUG, QUIETER. `conftest.py` is not a `python_files` match, but
 pytest imports it BEFORE any test module, so it is collectible in the only sense that
