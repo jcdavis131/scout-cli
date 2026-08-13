@@ -16,8 +16,22 @@ def _load():
     A CORRUPT registry raises rather than reading as empty -- same read-modify-write
     trap as the vault: silently returning a fresh registry would make the next
     register_tool() drop every previously registered tool. See atomic_json.
+
+    The default above only fires when the FILE is absent. A file that parses fine
+    but was written by something else -- `scout system doctor`'s test fixture
+    (tests/test_system.py) seeds registry.json with a bare `{}` to exercise the
+    file-exists check, and nothing restores it afterwards for the rest of the
+    (session-scoped) throwaway HOME -- is not corruption, and every caller below
+    does `db["tools"][...]`. Found by adding tests/test_tools.py: it is the first
+    test file that touches the registry after test_system.py's fixture runs, and
+    every one of its tests failed with `KeyError: 'tools'` reading a registry.json
+    that was valid, empty JSON. Callers keep their bare `db["tools"]` access; this
+    is the one place that needs to normalize the shape.
     """
-    return atomic_json.read_json(REG_FILE, {"version": "0.3.0", "tools": {}})
+    db = atomic_json.read_json(REG_FILE, {"version": "0.3.0", "tools": {}})
+    if not isinstance(db.get("tools"), dict):
+        db["tools"] = {}
+    return db
 
 
 def _save(data):
