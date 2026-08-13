@@ -57,6 +57,18 @@ bigbang = [
   "plugins/*/manifest.yaml",
 ]
 
+[tool.pytest.ini_options]
+# Bare `pytest` used to collect from the repo root, which swept in `graphify-out*/`,
+# `examples/`, `tasks/` and — the one that mattered — `scripts/test_goat_audit.py`,
+# whose module-level `sys.exit` aborted the whole session with INTERNALERROR (exit 3,
+# zero tests run). Naming the roots makes the gate's `pytest` and the docs' `pytest
+# tests/` differ in exactly one deliberate way instead of by accident.
+#
+# `scripts` is here ON PURPOSE. It holds one collectible file, the GOAT audit's own
+# test, and dropping it to `["tests"]` would make bare `pytest` green while silently
+# never running that check again — trading a loud crash for a quiet hole.
+testpaths = ["tests", "scripts"]
+
 [tool.ruff]
 target-version = "py311"
 line-length = 88

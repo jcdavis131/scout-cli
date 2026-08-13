@@ -95,6 +95,10 @@ pytest tests/
 ruff check .
 ```
 
+`pytest tests/` is the suite. Bare `pytest` also picks up `scripts/test_goat_audit.py` (the
+GOAT audit's own tests) — `testpaths` in `pyproject.toml` pins both roots, so the two
+commands differ only in that one deliberate way.
+
 CI runs a non-blocking `ruff check` (`.github/workflows/lint.yml`); lint findings are fixed in `dottie`, not here, since snapshots overwrite this tree. Docs: [architecture](docs/ARCHITECTURE.md), [security model](docs/SECURITY.md), [extending](docs/EXTENDING.md). The RTX offload companion repo is [`scout-rtx`](https://github.com/jcdavis131/scout-rtx), wired up as described in [INTEGRATION.md](INTEGRATION.md).
 
 ## Ecosystem
