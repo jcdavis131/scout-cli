@@ -1,8 +1,7 @@
 """The guard that would have caught a green suite running on a broken env.
-
-One test per declared hard dependency: it must import. If `pip install -e .`
-half-succeeded, or a dependency quietly moved to an extra, this fails by name
-instead of letting the affected modules skip themselves into a green run.
+One test per declared hard dependency: it must import. If `pip install -e .` half-succeeded, or a dependency
+quietly moved to an extra, this fails by name instead of letting the affected modules skip themselves into a
+green run.
 """
 
 from __future__ import annotations
@@ -16,9 +15,8 @@ import pytest
 
 def test_dependency_list_parses():
     """The parser must find the manifest's dependencies, not silently find none.
-
-    An empty parse would make every dependency check below vacuously pass — the
-    exact failure shape this file exists to prevent, one level up.
+    An empty parse would make every dependency check below vacuously pass — the exact failure shape this file
+    exists to prevent, one level up.
     """
     names = hard_deps.declared_runtime_dependencies()
     assert "mcp" in names, names
@@ -27,11 +25,9 @@ def test_dependency_list_parses():
 
 def test_dependency_specifiers_parse():
     """The version specifiers must survive parsing, or the version check is a no-op.
-
-    `SpecifierSet("")` accepts every version, so a parser that dropped the `>=`
-    half of each requirement would leave `test_declared_dependency_satisfies_specifier`
-    passing unconditionally — a guard that cannot fail, which is this file's
-    whole subject. Pinning one known specifier keeps that silent.
+    `SpecifierSet("")` accepts every version, so a parser that dropped the `>=` half of each requirement would
+    leave `test_declared_dependency_satisfies_specifier` passing unconditionally — a guard that cannot fail,
+    which is this file's whole subject. Pinning one known specifier keeps that silent.
     """
     reqs = dict(hard_deps.declared_runtime_requirements())
     assert reqs["mcp"] == ">=1.28.1", reqs
@@ -47,11 +43,9 @@ def test_declared_dependency_imports(dist):
 @pytest.mark.parametrize("dist,spec", hard_deps.declared_runtime_requirements())
 def test_declared_dependency_satisfies_specifier(dist, spec):
     """Importable is not the same claim as "matches the manifest".
-
-    This is the check that catches an environment carrying httpx 0.24.1 against a
-    declared `httpx>=0.27`: `import httpx` works, so the import guard above is
-    green, and every httpx-dependent test runs against an API the manifest says
-    is too old to support.
+    This is the check that catches an environment carrying httpx 0.24.1 against a declared `httpx>=0.27`:
+    `import httpx` works, so the import guard above is green, and every httpx-dependent test runs against an
+    API the manifest says is too old to support.
     """
     assert hard_deps.require_declared_version(dist, spec)
 
@@ -66,9 +60,8 @@ def test_version_mismatch_fails_it_does_not_pass():
 
 def test_unverifiable_version_fails_it_does_not_pass():
     """Missing metadata means the constraint went unchecked, so it must be loud.
-
-    Reporting "no evidence of a violation" as "no violation" is the same laundering
-    as skipping: both hand back a green result for a check that never ran.
+    Reporting "no evidence of a violation" as "no violation" is the same laundering as skipping: both hand
+    back a green result for a check that never ran.
     """
     with pytest.raises(pytest.fail.Exception) as excinfo:
         hard_deps.require_declared_version("scout_no_such_distribution", ">=1.0")
@@ -84,12 +77,10 @@ def test_unparseable_specifier_fails_it_does_not_pass():
     assert "uncheckable constraint" in str(excinfo.value)
 
 
-# An unreadable manifest must fail LOUDLY AT TEST TIME, never during collection.
-#
-# The two parametrize decorators above are evaluated while pytest builds the test
-# list, so before this guard existed, anything that stopped the parse took the whole
-# session down: `Interrupted: 1 error during collection`, exit 2, zero tests run — the
-# sibling modules never even loaded. Measured 2026-08-13; the trigger was reformatting
+# An unreadable manifest must fail LOUDLY AT TEST TIME, never during collection. The two parametrize
+# decorators above are evaluated while pytest builds the test list, so before this guard existed, anything
+# that stopped the parse took the whole session down: `Interrupted: 1 error during collection`, exit 2, zero
+# tests run — the sibling modules never even loaded. Measured 2026-08-13; the trigger was reformatting
 # `dependencies = [` to `dependencies=[`. Each case below is a manifest that cannot parse.
 BROKEN_MANIFESTS = {
     # What a TOML formatter can do to the line the parser keys on.
@@ -113,15 +104,11 @@ def _manifest(monkeypatch, tmp_path, body):
 
 
 @pytest.mark.parametrize("case", sorted(BROKEN_MANIFESTS))
-def test_unreadable_manifest_yields_exactly_one_loud_parameter(
-    case, monkeypatch, tmp_path
-):
+def test_unreadable_manifest_yields_exactly_one_loud_parameter(case, monkeypatch, tmp_path):
     """Never zero parameters: pytest reports an empty parameter set as SKIPPED.
-
-    This is the half of the bug that hides. Returning `[]` on a failed parse would
-    make both parametrized tests above collect as a single green skip, so a manifest
-    nobody could read would present as a clean run. Exactly one sentinel row keeps
-    the outcome red, and carries the cause so the failure names it.
+    This is the half of the bug that hides. Returning `[]` on a failed parse would make both parametrized
+    tests above collect as a single green skip, so a manifest nobody could read would present as a clean run.
+    Exactly one sentinel row keeps the outcome red, and carries the cause so the failure names it.
     """
     _manifest(monkeypatch, tmp_path, BROKEN_MANIFESTS[case])
     reqs = hard_deps.declared_runtime_requirements()
@@ -134,10 +121,9 @@ def test_unreadable_manifest_yields_exactly_one_loud_parameter(
 @pytest.mark.parametrize("case", sorted(BROKEN_MANIFESTS))
 def test_unreadable_manifest_does_not_abort_collection(case, monkeypatch, tmp_path):
     """Reading a broken manifest must not raise — a raise here kills the whole session.
-
-    `declared_runtime_requirements()` is called from a `@pytest.mark.parametrize`
-    argument, i.e. during collection, where an exception is not a reported failure
-    but `Interrupted: 1 error during collection` with zero tests run.
+    `declared_runtime_requirements()` is called from a `@pytest.mark.parametrize` argument, i.e. during
+    collection, where an exception is not a reported failure but `Interrupted: 1 error during collection`
+    with zero tests run.
     """
     _manifest(monkeypatch, tmp_path, BROKEN_MANIFESTS[case])
     hard_deps.declared_runtime_requirements()  # must return, not raise
@@ -146,17 +132,14 @@ def test_unreadable_manifest_does_not_abort_collection(case, monkeypatch, tmp_pa
 @pytest.mark.parametrize("guard", ["require", "require_declared_version"])
 def test_sentinel_fails_under_both_guards_naming_the_manifest(guard):
     """Whichever parametrized test receives the sentinel must fail, and say why.
-
-    Without an explicit branch the sentinel still fails, but as "import failed" or
-    "no metadata found" — pointing at a dependency when the manifest is what broke.
+    Without an explicit branch the sentinel still fails, but as "import failed" or "no metadata found" —
+    pointing at a dependency when the manifest is what broke.
     """
     with pytest.raises(pytest.fail.Exception) as excinfo:
         if guard == "require":
             hard_deps.require(hard_deps.MANIFEST_UNREADABLE)
         else:
-            hard_deps.require_declared_version(
-                hard_deps.MANIFEST_UNREADABLE, "StopIteration: "
-            )
+            hard_deps.require_declared_version(hard_deps.MANIFEST_UNREADABLE, "StopIteration: ")
     assert not isinstance(excinfo.value, pytest.skip.Exception)
     assert "could not be parsed" in str(excinfo.value)
     assert "NO declared dependency was checked" in str(excinfo.value)
@@ -169,24 +152,15 @@ def test_the_sentinel_cannot_be_a_real_distribution_name():
 
 def test_a_readable_manifest_still_parses_normally(monkeypatch, tmp_path):
     """Guard the guard: the totality wrapper must not swallow a manifest that IS fine."""
-    _manifest(
-        monkeypatch,
-        tmp_path,
-        '[project]\ndependencies = [\n  "mcp>=1.28.1",\n  "httpx>=0.27",\n]\n',
-    )
-    assert hard_deps.declared_runtime_requirements() == [
-        ("mcp", ">=1.28.1"),
-        ("httpx", ">=0.27"),
-    ]
+    _manifest(monkeypatch, tmp_path, '[project]\ndependencies = [\n  "mcp>=1.28.1",\n  "httpx>=0.27",\n]\n')
+    assert hard_deps.declared_runtime_requirements() == [("mcp", ">=1.28.1"), ("httpx", ">=0.27")]
 
 
 def test_require_fails_it_does_not_skip():
     """The whole point: a missing hard dep is a FAILURE outcome, not a skip.
-
-    `pytest.fail` raises Failed and `pytest.skip` raises Skipped; both are
-    BaseException subclasses, so asserting on the type is what pins the
-    behaviour. An implementation that quietly went back to `importorskip` would
-    still "raise something" here — it would just raise the green one.
+    `pytest.fail` raises Failed and `pytest.skip` raises Skipped; both are BaseException subclasses, so
+    asserting on the type is what pins the behaviour. An implementation that quietly went back to
+    `importorskip` would still "raise something" here — it would just raise the green one.
     """
     with pytest.raises(pytest.fail.Exception) as excinfo:
         hard_deps.require("scout_no_such_distribution")
@@ -195,10 +169,10 @@ def test_require_fails_it_does_not_skip():
 
 
 def test_the_deferred_mcp_import_actually_resolves():
-    """`bigbang/plugins/mcp/cli.py` binds its two client names inside `_check_sdk()` so the mcp
-    SDK stays out of every `scout` startup. Every other test of that module monkeypatches those
-    names rather than importing across them, so a broken import path there would pass the whole
-    suite while `mcp call` failed for real users. This is the one test that crosses it unmocked.
+    """`bigbang/plugins/mcp/cli.py` binds its two client names inside `_check_sdk()` so the mcp SDK stays out
+    of every `scout` startup. Every other test of that module monkeypatches those names rather than importing
+    across them, so a broken import path there would pass the whole suite while `mcp call` failed for real
+    users. This is the one test that crosses it unmocked.
     """
     from bigbang.plugins.mcp import cli as mcp_cli
 
@@ -208,9 +182,9 @@ def test_the_deferred_mcp_import_actually_resolves():
 
 
 def test_cli_startup_does_not_import_the_mcp_sdk():
-    """The property the deferral buys, asserted rather than trusted: importing the CLI must not
-    drag in `mcp`. A module-scope `from bigbang.core.mcp_client import ...` in any plugin puts it
-    back, costs ~366ms of a ~792ms startup, and nothing else in the suite would notice.
+    """The property the deferral buys, asserted rather than trusted: importing the CLI must not drag in
+    `mcp`. A module-scope `from bigbang.core.mcp_client import ...` in any plugin puts it back, costs ~366ms
+    of a ~792ms startup, and nothing else in the suite would notice.
     """
     probe = "import bigbang.cli, sys; print('mcp' in sys.modules)"
     out = subprocess.run(
