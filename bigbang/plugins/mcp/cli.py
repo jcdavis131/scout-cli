@@ -19,20 +19,29 @@ from bigbang.core.registry import list_tools, register_tool
 
 sanitize_no_proxy_env()
 
-try:
-    from bigbang.core.mcp_client import call_mcp_tool_sync, list_mcp_tools_sync
+# `bigbang/cli.py` runs discover_plugins() at import time, so this module loads on every `scout`
+# invocation. Importing the core client at module scope dragged the mcp SDK — 366ms of a 792ms
+# startup — into every command that never touches MCP, and the ~50 test files that spawn
+# `python -m bigbang.cli` paid it once per spawn. All four call sites below already call
+# `_check_sdk()` before touching these names, so bind them there instead.
+list_mcp_tools_sync = call_mcp_tool_sync = None  # type: ignore
+_CORE_CLIENT = True
 
-    _CORE_CLIENT = True
 
-    def _check_sdk():
-        return True
-except ImportError:
-    list_mcp_tools_sync = None  # type: ignore
-    call_mcp_tool_sync = None  # type: ignore
-    _CORE_CLIENT = False
-
-    def _check_sdk():  # type: ignore
-        raise RuntimeError("mcp SDK not installed. pip install mcp")
+def _check_sdk():
+    global list_mcp_tools_sync, call_mcp_tool_sync
+    try:
+        from bigbang.core import mcp_client
+    except ImportError as exc:
+        raise RuntimeError("mcp SDK not installed. pip install mcp") from exc
+    # Bind each name only while it is still unbound. `test_mcp_exit_codes.py` monkeypatches these
+    # module attributes one at a time; an unconditional rebind would overwrite a patch that the
+    # other branch left alone, turning a stubbed failure path back into a live network call.
+    if list_mcp_tools_sync is None:
+        list_mcp_tools_sync = mcp_client.list_mcp_tools_sync
+    if call_mcp_tool_sync is None:
+        call_mcp_tool_sync = mcp_client.call_mcp_tool_sync
+    return True
 
 
 app = typer.Typer(

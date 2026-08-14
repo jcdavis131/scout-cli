@@ -7,9 +7,11 @@ instead of letting the affected modules skip themselves into a green run.
 
 from __future__ import annotations
 
-import pytest
+import subprocess
+import sys
 
 import hard_deps
+import pytest
 
 
 def test_dependency_list_parses():
@@ -190,3 +192,29 @@ def test_require_fails_it_does_not_skip():
         hard_deps.require("scout_no_such_distribution")
     assert not isinstance(excinfo.value, pytest.skip.Exception)
     assert "broken environment" in str(excinfo.value)
+
+
+def test_the_deferred_mcp_import_actually_resolves():
+    """`bigbang/plugins/mcp/cli.py` binds its two client names inside `_check_sdk()` so the mcp
+    SDK stays out of every `scout` startup. Every other test of that module monkeypatches those
+    names rather than importing across them, so a broken import path there would pass the whole
+    suite while `mcp call` failed for real users. This is the one test that crosses it unmocked.
+    """
+    from bigbang.plugins.mcp import cli as mcp_cli
+
+    assert mcp_cli._check_sdk() is True
+    assert callable(mcp_cli.list_mcp_tools_sync)
+    assert callable(mcp_cli.call_mcp_tool_sync)
+
+
+def test_cli_startup_does_not_import_the_mcp_sdk():
+    """The property the deferral buys, asserted rather than trusted: importing the CLI must not
+    drag in `mcp`. A module-scope `from bigbang.core.mcp_client import ...` in any plugin puts it
+    back, costs ~366ms of a ~792ms startup, and nothing else in the suite would notice.
+    """
+    probe = "import bigbang.cli, sys; print('mcp' in sys.modules)"
+    out = subprocess.run(
+        [sys.executable, "-c", probe], capture_output=True, text=True, timeout=60
+    )
+    assert out.returncode == 0, out.stderr
+    assert out.stdout.strip() == "False", "importing bigbang.cli pulled in the mcp SDK"
