@@ -70,8 +70,8 @@ bigbang = [
 testpaths = ["tests", "scripts"]
 # `-ra` so a SKIP can never be read as a pass: 5 of the 9 skips in the first green run were
 # `No module named 'mcp'`, a hard dependency above — an incomplete install was silently
-# dropping five checks while the summary line still said passed. `--durations=10` because a
-# ~13-minute run outlives most gate timeouts and nothing here says where those minutes go.
+# dropping five checks while the summary line still said passed. `--durations=10` because the
+# run outlives most gate timeouts, and it is what located the cause: per-test interpreter startup.
 addopts = "-ra --durations=10"
 
 [tool.ruff]

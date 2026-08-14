@@ -17,23 +17,39 @@ from bigbang.core.http_utils import sanitize_no_proxy_env
 
 sanitize_no_proxy_env()
 
-try:
-    import httpx as _httpx
-    from mcp.client.session import ClientSession
-    from mcp.client.sse import sse_client
-    from mcp.client.streamable_http import streamablehttp_client
+# Imported on FIRST USE, not at module import: `cli.py:95` calls `discover_plugins(app)` at
+# module level, which reaches this module, so every `scout` command paid for the SDK even if
+# it never speaks MCP. Measured 2026-08-14: `import bigbang.cli` 1231ms vs a 129ms bare
+# interpreter, `mcp` 467ms of it — and ~50 test files shell out to `python -m bigbang.cli`,
+# which is why the suite outruns the gate's timeout. Deferring it: 1231 -> 774ms.
+#
+# The failure contract is UNCHANGED, only deferred. A missing SDK is still an ImportError
+# caught here, still recorded as `_SDK_AVAILABLE = False`, and still surfaces as the same
+# RuntimeError from `_check_sdk()` — just when a command needs the SDK rather than when
+# Python loads the file. Both public entry points call `_check_sdk()` before touching any
+# name below, so the load point cannot be skipped.
+_httpx = ClientSession = sse_client = streamablehttp_client = None
+_SDK_AVAILABLE: bool | None = None  # None = not attempted yet; True/False = settled
 
-    _SDK_AVAILABLE = True
-except ImportError:  # pragma: no cover
-    sse_client = None  # type: ignore
-    ClientSession = None  # type: ignore
-    streamablehttp_client = None  # type: ignore
-    _httpx = None  # type: ignore
-    _SDK_AVAILABLE = False
+
+def _load_sdk() -> bool:
+    global _httpx, ClientSession, sse_client, streamablehttp_client, _SDK_AVAILABLE
+    if _SDK_AVAILABLE is None:
+        try:
+            import httpx
+            from mcp.client.session import ClientSession as _Session
+            from mcp.client.sse import sse_client as _sse
+            from mcp.client.streamable_http import streamablehttp_client as _sh
+        except ImportError:  # pragma: no cover
+            _SDK_AVAILABLE = False
+        else:
+            _httpx, ClientSession, sse_client, streamablehttp_client = httpx, _Session, _sse, _sh
+            _SDK_AVAILABLE = True
+    return _SDK_AVAILABLE
 
 
 def _check_sdk():
-    if not _SDK_AVAILABLE:
+    if not _load_sdk():
         raise RuntimeError(
             "mcp SDK not installed. Run: pip install 'mcp>=1.28.1' or pip install bigbang-cli[all]."
         )
