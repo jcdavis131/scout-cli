@@ -47,7 +47,11 @@ def _all_calls() -> list[tuple[Path, int, str, bool]]:
                 continue
             # A `**kwargs` could carry a timeout we cannot see. Treat it as covered rather
             # than fail on the unprovable: a false alarm trains people to ignore the guard.
-            timed = any(kw.arg == "timeout" or kw.arg is None for kw in node.keywords)
+            # `timeout=None` is not unprovable, though — it is subprocess's own spelling of
+            # "block until the child exits", so it must count as MISSING, not as present.
+            timed = any(kw.arg is None or (kw.arg == "timeout" and not (
+                isinstance(kw.value, ast.Constant) and kw.value.value is None))
+                for kw in node.keywords)
             found.append((path, node.lineno, func.attr, timed))
     return found
 
@@ -70,6 +74,6 @@ def test_every_subprocess_call_in_the_suite_has_a_timeout():
         )
         + "\n\nA child that never exits hangs the whole pytest session: no failing test, no "
         "summary, no exit code — the gate reports nothing, which is not the same thing as "
-        "green but is read that way. Pass `timeout=` (60 is the suite's usual value) so a "
-        "hang surfaces as a TimeoutExpired naming the test that hung."
+        "green but is read that way. Pass a numeric `timeout=` (60 is usual here; `None` is "
+        "not one) so a hang surfaces as a TimeoutExpired naming the test that hung."
     )
