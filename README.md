@@ -168,9 +168,9 @@ interchangeable here and the difference is the failure this whole section is abo
 `pytest` is a console script that need not be on `PATH` even where pytest is perfectly
 importable; when it is not there a POSIX shell answers **127** and `command not found` — a
 third outcome neither arm above covers, and the one you actually hit on a fresh checkout.
-Measured in this tree on 2026-08-13: bare `pytest tests/test_hard_deps.py -q` exits 127
-and measures nothing, while `python -m pytest tests/test_hard_deps.py -q` exits 1 and
-reports `3 failed, 25 passed`. Naming the interpreter is what makes the 0-versus-1
+Measured in this tree: bare `pytest tests/test_hard_deps.py -q` exits 127 and measures
+nothing (2026-08-13); `python -m pytest tests/test_hard_deps.py -q` exits 1 and reports
+`3 failed, 27 passed` (2026-08-14). Naming the interpreter is what makes the 0-versus-1
 distinction the block rests on reachable at all. That is also why the exit-1 arm is keyed
 to the failures and not to the number: `python -m` returns 1 for a missing pytest module
 too, and "no pytest" is not a statement about your dependencies. Where uv *is* installed,
@@ -188,7 +188,7 @@ inversion this block exists to prevent, and paging a long run through `tail`, `l
 the redirection. In bash, read
 `${PIPESTATUS[0]}` instead of `$?` when you pipe.
 
-In this checkout on 2026-08-13 the triage command reports `3 failed, 25 passed` in 0.45s
+In this checkout on 2026-08-14 the triage command reports `3 failed, 27 passed` in 1.7s
 — no `mcp` installed at all, and httpx 0.24.1 against a declared `httpx>=0.27`. Those
 failures are the guard working, not a regression, which is precisely why the claim opening
 this section is conditional: a
@@ -214,14 +214,14 @@ the two environments that used to look identical, told apart:
 ```bash
 # on an environment that does not match pyproject.toml, this exits 1 -- not 0
 python -m pytest tests/test_hard_deps.py tests/test_mcp_meta.py tests/test_mcp_serve.py
-# 7 failed, 35 passed, 1 skipped   (measured 2026-08-13 on an env with no `mcp` and httpx 0.24.1)
+# 7 failed, 37 passed, 1 skipped   (measured 2026-08-14 on an env with no `mcp` and httpx 0.24.1)
 
 # same three files, environment uv.lock pins; --no-sync measures rather than repairs
 uv run --no-sync python -m pytest tests/test_hard_deps.py tests/test_mcp_meta.py tests/test_mcp_serve.py -q
-# 43 passed                        (exit 0; measured 2026-08-13 in this tree)
+# 45 passed                        (exit 0; measured 2026-08-14 in this tree)
 ```
 
-Same 43 cases either way. The skip is worth as much attention as the failures: it is the
+Same 45 cases either way. The skip is worth as much attention as the failures: it is the
 module-level `importorskip` in `tests/test_mcp_serve.py`, and it disappears here not
 because anything was fixed but because `mcp` is present. Under the broken environment that
 one line is the real-SDK server round-trip declining to run, and only the seven named
