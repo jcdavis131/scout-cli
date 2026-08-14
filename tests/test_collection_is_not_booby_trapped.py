@@ -17,15 +17,13 @@ check took down ~2500 tests in `tests/`, none of which ran. Nothing in the outpu
 `importlib._bootstrap` frames, and the run's only summary line was `exit 3`.
 
 SECOND, ONLY THE ROBOT COULD SEE IT. README, docs/FOUNDATION.md, docs/EXTENDING.md and
-docs/ARCHITECTURE.md all said `pytest tests/`, which never walks `scripts/`. Every human
-ran the passing command. The automated gate ran bare `pytest` from the repo root and had
-been reporting a failure nobody could read for as long as the file had that shape. The
-three under `docs/` now say `python -m pytest -q` with no path argument, which collects
-both `testpaths` roots, so the command those docs teach reaches this directory too.
-README is the deliberate exception and still teaches the uv-pinned `uv run pytest tests/`
-(README:94), naming the one way a bare run differs (README:98) rather than dropping the
-path. This guard is the part that does not depend on anyone reading any of that: it
-catches the shape wherever it reappears.
+docs/ARCHITECTURE.md all said `pytest tests/`, which never walks `scripts/`. Every human ran the passing
+command. The automated gate ran bare `pytest` from the repo root and had been reporting a failure nobody could
+read for as long as the file had that shape. The three under `docs/` now say `python -m pytest -q` with no path
+argument, which collects both `testpaths` roots, so the command those docs teach reaches this directory too.
+README is the deliberate exception and still teaches the uv-pinned `uv run pytest tests/` (README:94), naming
+the one way a bare run differs (README:98) rather than dropping the path. This guard is the part that does not
+depend on anyone reading any of that: it catches the shape wherever it reappears.
 
 CONFTEST IS THE SAME BUG, QUIETER. `conftest.py` is not a `python_files` match, but
 pytest imports it BEFORE any test module, so it is collectible in the only sense that
@@ -38,12 +36,11 @@ for the whole session). Measured 2026-08-13 with a one-line conftest in a scratc
     raise RuntimeError(...)     4    traceback naming it    0
     pytest.exit(reason)         4    names file + reason    0
 
-The SystemExit rows are worse than the exit-3 case above, not merely equal to it: pytest
-never gets to report, so the process adopts the exit code and prints NOTHING. A
-`sys.exit(0)` in a conftest is a whole suite exiting green, silently, having run zero
-tests. That is why this guard walks conftests too. The last row is the escape hatch this
-guard's failure message hands conftests instead: the same abort, but pytest recognises
-its own `Exit` and prints the file and the reason rather than vanishing.
+The SystemExit rows are worse than the exit-3 case above, not merely equal to it: pytest never gets to report,
+so the process adopts the exit code and prints NOTHING. A `sys.exit(0)` in a conftest is a whole suite exiting
+green, silently, having run zero tests. That is why this guard walks conftests too. The last row is the escape
+hatch this guard's failure message hands conftests instead: the same abort, but pytest recognises its own
+`Exit` and prints the file and the reason rather than vanishing.
 
 WHY AST AND NOT A SUBPROCESS. Actually running `pytest --collect-only` from here would
 test the real invariant more directly, but it re-imports every module in the suite and
@@ -51,9 +48,9 @@ would make this the slowest test in the file. Parsing is milliseconds and catche
 specific shape that bit us. The tradeoff is stated so the next person knows what this
 does NOT cover: an import-time crash that is not an interpreter exit (a bare `raise`, an
 `ImportError`, a module-scope `assert`) still aborts collection and is not caught here.
-That exclusion is principled rather than merely admitted — the table above is the
-measurement: a raise reports (exit 4, traceback naming the file), while an interpreter
-exit does not report at all. This guard covers the shapes that stay silent.
+That exclusion is principled rather than merely admitted — the table above is the measurement: a raise reports
+(exit 4, traceback naming the file), while an interpreter exit does not report at all. This guard covers the
+shapes that stay silent.
 """
 
 from __future__ import annotations

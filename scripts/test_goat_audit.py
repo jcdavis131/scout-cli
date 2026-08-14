@@ -30,15 +30,12 @@ test failure, it is an INTERNALERROR that aborts the entire session:
 Note the `0`. The audit had PASSED, and passing still took the whole gate down with it —
 `pytest` from the repo root ran ZERO of the ~2500 tests in `tests/` and reported a
 failure whose traceback was 40 lines of `importlib._bootstrap` naming nothing a reader
-could act on. Humans never saw it because README and every doc said `pytest tests/`, which
-skips this directory; only the automated gate ran bare `pytest`. The three docs under
-`docs/` now say `python -m pytest -q` with no path, which collects both `testpaths` roots,
-so the command those docs teach reaches this directory too; README still teaches the
-uv-pinned `uv run pytest tests/` and names the one deliberate way a bare run differs
-instead. The checks below are therefore real test functions, and the only `sys.exit` left
-is under `__main__`, where pytest never looks.
-`tests/test_collection_is_not_booby_trapped.py` fails loudly if this shape ever regresses
-here or anywhere else in the tree.
+could act on. Humans never saw it because README and every doc said `pytest tests/`, which skips this
+directory; only the automated gate ran bare `pytest`. The three docs under `docs/` now say `python -m pytest -q`
+with no path, which collects both `testpaths` roots, so the command those docs teach reaches this directory too;
+README still teaches the uv-pinned `uv run pytest tests/` and names the one deliberate way a bare run differs.
+The checks below are therefore real test functions, the only `sys.exit` left is under `__main__` where pytest
+never looks, and `tests/test_collection_is_not_booby_trapped.py` fails loudly if that shape regresses anywhere.
 """
 
 from __future__ import annotations
@@ -197,27 +194,24 @@ def test_todos_no_longer_loses_points_to_prose_comments(todos_report):
 
 # --- the --check exit-code contract --------------------------------------------------
 #
-# THE BUG THESE EXIST FOR. `--check` is the gate half of this tool, and it had three
-# distinct ways to exit 0 while comparing NOTHING, each printing the same reassuring
-# "no regressions vs baseline":
+# THE BUG THESE EXIST FOR. `--check` is the gate half of this tool, and it had three distinct ways to exit 0
+# while comparing NOTHING, each printing the same reassuring "no regressions vs baseline":
 #
 #   no .goat_baseline.json  -> `base = {}` -> every `r["plugin"] in base` is False
 #   no plugins discovered   -> `reports = []` -> nothing to iterate
 #   --plugin <typo>         -> a phantom 0.0 that no baseline can contradict
 #
-# All three are the same failure: a check that could not run, read as a clean one. The
-# tests below assert the exit CODE, not the message, because the exit code is what a
-# gate consumes — and they assert the absence of the reassuring line, because a human
-# skimming a log consumes that.
+# All three are the same failure: a check that could not run, read as a clean one. The tests below assert the
+# exit CODE, not the message, because the exit code is what a gate consumes — and they assert the absence of
+# the reassuring line, because a human skimming a log consumes that.
 
 
 @pytest.fixture
 def gate(tmp_path, monkeypatch):
     """goat_audit wired to a scratch plugin tree, so exit codes are exact and fast.
 
-    `audit_plugin` is stubbed: these tests are about the gate's control flow, and
-    scoring 63 real plugins per case would make the contract expensive to assert.
-    The scoring itself is covered by the audit_plugin tests above.
+    `audit_plugin` is stubbed: these tests are about the gate's control flow, and scoring 63 real plugins per
+    case would make the contract expensive to assert. The scoring itself is covered by the tests above.
     """
     plugins = tmp_path / "plugins"
     plugins.mkdir()
@@ -328,8 +322,7 @@ def test_a_clean_check_exits_0_and_says_what_it_compared(gate, capsys):
     gate.plugin("todos")
     gate.write_baseline('{"sitemap": 9.0, "todos": 9.0}')
     assert gate.run("--check") == 0
-    # The counts are the point: "no regressions" alone reads the same after
-    # comparing 63 plugins and after comparing none.
+    # The counts are the point: "no regressions" alone reads the same after comparing 63 plugins and after none.
     assert "2 plugins compared against 2 baselined" in capsys.readouterr().out
 
 
