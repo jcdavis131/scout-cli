@@ -1,6 +1,6 @@
 {
   "name": "scout-cli",
-  "install": "bash scripts/dev-env-setup.sh",
+  "install": "uv sync --locked --extra dev",
   "repositoryDependencies": [
     "github.com/jcdavis131/dottie"
   ],
