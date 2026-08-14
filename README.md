@@ -207,11 +207,10 @@ HOME. Those now build their own layout in `tmp_path` and pin resolution *order*.
 no longer an "ignore those" list. `addopts = "-ra"` means every skip prints its reason, so
 a check that declines to run cannot be mistaken for one that passed.
 
-A full run takes ~13 minutes, past most default gate timeouts — and a timed-out gate reports `not-run`, which is neither
-pass nor fail. Measured 2026-08-14: this repo's pytest gate read `pass (exit 0)` on one cycle and, hours later,
-`not-run (ETIMEDOUT)` on the next. Read `not-run` as unverified, never as green; the bounded check below
-returns a real exit code in seconds. Rather than quote a pass count that goes stale on every commit, here are both
-sides of the same three files that touch the MCP surface — the two environments that used to look identical, told apart:
+A full run takes ~13 minutes, past most default gate timeouts, and a timed-out gate reports `not-run` — neither pass nor fail.
+Measured 2026-08-14: this repo's pytest gate read `pass (exit 0)` on one cycle and `not-run (ETIMEDOUT)` at the start of a later
+one that same day. Read `not-run` as unverified, never as green. The bounded check below returns a real exit code in seconds —
+both sides of the same three files that touch the MCP surface, the two environments that used to look identical, told apart:
 
 ```bash
 # on an environment that does not match pyproject.toml, this exits 1 -- not 0
