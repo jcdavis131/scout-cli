@@ -197,7 +197,7 @@ permanently green one. The full run on that same environment is red for that rea
 no other — 7 failed, 0 errors, and all 7 are the environment: these 3 plus the 4 in
 `tests/test_mcp_meta.py` that call `hard_deps.require_mcp()`. Nothing else in the suite
 is red, which is the claim the triage command above exists to let you check in a second
-instead of nine minutes.
+instead of thirteen minutes.
 
 Full green is a recent state. A handful of tests asserted the *developer's machine layout*
 rather than the product — the plugin resolvers for `apps/scout-rtx` and `apps/ava-factory`,
@@ -207,7 +207,7 @@ HOME. Those now build their own layout in `tmp_path` and pin resolution *order*.
 no longer an "ignore those" list. `addopts = "-ra"` means every skip prints its reason, so
 a check that declines to run cannot be mistaken for one that passed.
 
-A full run takes roughly nine minutes. Rather than quote a pass count that goes stale on
+A full run takes ~13 minutes, past most default gate timeouts. Rather than quote a pass count that goes stale on
 every commit, here are both sides of the same three files that touch the MCP surface —
 the two environments that used to look identical, told apart:
 
