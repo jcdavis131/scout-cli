@@ -173,12 +173,18 @@ def test_the_deferred_mcp_import_actually_resolves():
     of every `scout` startup. Every other test of that module monkeypatches those names rather than importing
     across them, so a broken import path there would pass the whole suite while `mcp call` failed for real
     users. This is the one test that crosses it unmocked.
+
+    IDENTITY, NOT `callable()`. `_check_sdk()` rebinds each name only while it is still None, so a stub left
+    on the module by an earlier test survives the call and `callable(stub)` is true: measured 2026-08-14,
+    stubbing both names passed all three of the previous assertions. Identity is what separates a real
+    resolution from a leftover one.
     """
+    from bigbang.core import mcp_client
     from bigbang.plugins.mcp import cli as mcp_cli
 
     assert mcp_cli._check_sdk() is True
-    assert callable(mcp_cli.list_mcp_tools_sync)
-    assert callable(mcp_cli.call_mcp_tool_sync)
+    assert mcp_cli.list_mcp_tools_sync is mcp_client.list_mcp_tools_sync
+    assert mcp_cli.call_mcp_tool_sync is mcp_client.call_mcp_tool_sync
 
 
 def test_cli_startup_does_not_import_the_mcp_sdk():
