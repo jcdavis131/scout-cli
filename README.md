@@ -100,15 +100,13 @@ GOAT audit's own tests) — `testpaths` in `pyproject.toml` pins both roots, so 
 commands differ only in that one deliberate way.
 
 **`uv.lock` is what pins this environment, so run the gates through `uv`.** `pip install -e
-".[dev]"` also works and every command below is written to be runnable either way — but the
-two do not produce the same environment, and only one of them is the one this repo
-describes. `pyproject.toml` declares floors (`httpx>=0.27`, `mcp>=1.28.1`); `uv.lock` names
-versions (httpx 0.28.1, mcp 1.28.1). pip re-resolves those floors against whatever the
-machine and the index hand it that day, which is a *different* environment that happens to
-be legal. That distinction is not pedantic here: with uv absent, the pinned suite does not
-run at all, and a gate that could not run is not a gate that passed. If you have no uv,
-say so when you report the result, and use the triage command below to establish which
-environment you actually measured.
+".[dev]"` also works and every command below is runnable either way — but the two do not
+produce the same environment. `pyproject.toml` declares floors (`httpx>=0.27`,
+`mcp>=1.28.1`); `uv.lock` names versions (httpx 0.28.1, mcp 1.28.1), while pip re-resolves
+those floors against whatever the index hands it that day — a *different* environment that
+happens to be legal. With uv absent the pinned suite does not run at all, and a gate that
+could not run is not a gate that passed: say so when you report a result, and use the
+triage command below to name which environment you actually measured.
 
 `--locked` is load-bearing rather than decorative: bare `uv sync` re-resolves and *rewrites*
 `uv.lock` when `pyproject.toml` has drifted from it, so the setup step would quietly redefine
@@ -169,35 +167,24 @@ interchangeable here and the difference is the failure this whole section is abo
 importable; when it is not there a POSIX shell answers **127** and `command not found` — a
 third outcome neither arm above covers, and the one you actually hit on a fresh checkout.
 Measured in this tree: bare `pytest tests/test_hard_deps.py -q` exits 127 and measures
-nothing (2026-08-13); `python -m pytest tests/test_hard_deps.py -q` exits 1 and reports
-`3 failed, 27 passed` (2026-08-14). Naming the interpreter is what makes the 0-versus-1
-distinction the block rests on reachable at all. That is also why the exit-1 arm is keyed
-to the failures and not to the number: `python -m` returns 1 for a missing pytest module
-too, and "no pytest" is not a statement about your dependencies. Where uv *is* installed,
-triage through it the same way rather than mixing the two environments the section above
-distinguishes.
+nothing (2026-08-13); `python -m pytest` on it exits 1 with `3 failed, 27 passed` in 1.7s
+(2026-08-14) — no `mcp` installed, httpx 0.24.1 against a declared `httpx>=0.27`. Those
+failures are the guard working, not a regression, which is why the claim opening this
+section is conditional; on that environment the whole suite is red for that reason and no
+other — 7 failed, 0 errors, those 3 plus the 4 in `tests/test_mcp_meta.py` that call
+`hard_deps.require_mcp()`. That is also why the exit-1 arm is keyed to the failures and
+not to the number: `python -m` returns 1 for a missing pytest module too, and "no pytest"
+is not a statement about your dependencies. Where uv *is* installed, triage through it the
+same way rather than mixing the two environments the section above distinguishes.
 
 **Read the exit code unpiped.** Every arm above is keyed to it, and a shell pipeline
 reports the *last* stage's status, not pytest's. Measured in this tree on 2026-08-13:
 `python -m pytest tests/test_hard_deps.py -q` exits **1**, while the same command with
 `| tail -1` appended exits **0** — a broken environment landing in the arm that says the
-environment matches and a red suite is therefore a real regression. That is the precise
-inversion this block exists to prevent, and paging a long run through `tail`, `less` or
-`tee` is the obvious way to run it rather than an exotic one. Redirecting to a log file
-(`> log.txt`) is safe — it is interposing another *process* that swallows the status, not
-the redirection. In bash, read
-`${PIPESTATUS[0]}` instead of `$?` when you pipe.
-
-In this checkout on 2026-08-14 the triage command reports `3 failed, 27 passed` in 1.7s
-— no `mcp` installed at all, and httpx 0.24.1 against a declared `httpx>=0.27`. Those
-failures are the guard working, not a regression, which is precisely why the claim opening
-this section is conditional: a
-permanently red gate teaches people to stop reading it just as effectively as a
-permanently green one. The full run on that same environment is red for that reason and
-no other — 7 failed, 0 errors, and all 7 are the environment: these 3 plus the 4 in
-`tests/test_mcp_meta.py` that call `hard_deps.require_mcp()`. Nothing else in the suite
-is red, which is the claim the triage command above exists to let you check in a second
-instead of thirteen minutes.
+environment matches and a red suite is therefore a real regression. Paging a long run
+through `tail`, `less` or `tee` is the obvious way to run it, not an exotic one; in bash,
+read `${PIPESTATUS[0]}` instead of `$?` when you pipe. Redirecting to a log file
+(`> log.txt`) is safe — it swallows no status, because it interposes no process.
 
 Full green is a recent state. A handful of tests asserted the *developer's machine layout*
 rather than the product — the plugin resolvers for `apps/scout-rtx` and `apps/ava-factory`,
@@ -222,11 +209,9 @@ uv run --no-sync python -m pytest tests/test_hard_deps.py tests/test_mcp_meta.py
 # 45 passed                        (exit 0; measured 2026-08-14 in this tree)
 ```
 
-Same 45 cases either way. The skip is worth as much attention as the failures: it is the
-module-level `importorskip` in `tests/test_mcp_serve.py`, and it disappears here not
-because anything was fixed but because `mcp` is present. Under the broken environment that
-one line is the real-SDK server round-trip declining to run, and only the seven named
-failures beside it say so out loud — which is the arrangement this section is describing.
+Same 45 cases either way, and the `1 skipped` deserves as much attention as the failures:
+it is the module-level `importorskip` in `tests/test_mcp_serve.py` — the real-SDK server
+round-trip declining to run, saying so only through the seven named failures beside it.
 
 `mcp>=1.28.1` is a *hard* dependency in `pyproject.toml`, but four cases in
 `tests/test_mcp_meta.py` used to guard on `pytest.importorskip("mcp")`. A missing `mcp` and
