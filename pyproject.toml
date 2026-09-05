@@ -35,6 +35,7 @@ graphify = []
 [project.urls]
 Homepage = "https://github.com/jcdavis131/scout-cli"
 Issues = "https://github.com/jcdavis131/scout-cli/issues"
+Superseded-By = "https://github.com/jcdavis131/dottie/tree/main/apps/scout-cli"
 
 [project.scripts]
 scout = "bigbang.cli:app"
