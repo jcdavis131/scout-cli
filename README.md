@@ -1,10 +1,12 @@
+> **ARCHIVED 2026-09-05.** Superseded by the canonical tree in the `dottie` monorepo: https://github.com/jcdavis131/dottie/tree/main/apps/scout-cli (this mirror is stale — 22 files differ and it lacks the comms/pair/inbox/infer plugins). No development happens here. Agents: do not install, run, or take tasks from this repo; work in dottie.
+
 # Scout CLI
 
 A personal, local-first control plane: one CLI (`scout`) that registers external tools (OpenAPI specs, MCP servers), calls them through a capability-policy layer, and writes an audit record for every invocation.
 
 **Solo personal project, no connection to employer, built with public/free-tier only.**
 
-Current version: 0.8.0 (Python 3.10+, MIT). The project started as "BigBang", so the internal package is still `bigbang/` and the aliases `bb`, `bigbang`, `dv`, and `kitty` are kept for compatibility. Canonical development happens in the [`dottie`](https://github.com/jcdavis131/dottie) monorepo at `apps/scout-cli`; this repo is the distribution mirror and receives snapshots of that tree.
+Current version: 0.8.0 (Python 3.10+, MIT). The project started as "BigBang", so the internal package is still `bigbang/` and the aliases `bb`, `bigbang`, `dv`, and `kitty` are kept for compatibility. Canonical development happens in the [`dottie`](https://github.com/jcdavis131/dottie) monorepo at [`apps/scout-cli`](https://github.com/jcdavis131/dottie/tree/main/apps/scout-cli); this repo was the distribution mirror, no longer receives snapshots, and is archived read-only as of 2026-09-05.
 
 ## What it does
 
@@ -85,7 +87,7 @@ Core plugins: `secrets`, `auth`, `tools`, `mcp`, `agent`, `harness`, `system`, `
 
 ## Development and releases
 
-Development happens in the [`dottie`](https://github.com/jcdavis131/dottie) monorepo at `apps/scout-cli`; issues and changes land there. This repo receives snapshots of that tree and exists so the CLI can be cloned and installed standalone.
+Development happens in the [`dottie`](https://github.com/jcdavis131/dottie) monorepo at [`apps/scout-cli`](https://github.com/jcdavis131/dottie/tree/main/apps/scout-cli); issues and changes land there. This repo received snapshots of that tree so the CLI could be cloned and installed standalone; the last snapshot is the one below, and no further snapshots will be published here (archived 2026-09-05).
 
 Snapshot: dottie@66886a7
 
